@@ -331,6 +331,11 @@ app.post("/__test__/evening", async (req, res) => {
   }
 });
 
+app.get("", async (req, res) => {
+    return res.status(200).send(bot.getWebHookInfo());
+ 
+});
+
 // Inicia el servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en puerto ${PORT}`);
