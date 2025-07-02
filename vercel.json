@@ -10,7 +10,7 @@
     { "src": "/api/webhook",       "dest": "/api/webhook.js" },
     { "src": "/api/send-morning",  "dest": "/api/send-morning.js" },
     { "src": "/api/send-evening",  "dest": "/api/send-evening.js" },
-    { "src": "api/test.js", "use": "@vercel/node" }
+    { "src": "api/test.js", "dest": "/api/test.js" }
   ],
   "crons": [
     {
