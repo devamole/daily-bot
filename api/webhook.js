@@ -8,9 +8,15 @@ import { splitText } from "../src/utils.js";
 const app = express();
 app.use(express.json());
 
+const PORT = process.env.PORT || 3000;
+const isProd = process.env.VERCEL_URL !== undefined;
+const domain = isProd
+  ? `https://${process.env.VERCEL_URL}`
+  : `http://localhost:${PORT}`;
+
 // Inicializa el bot en modo webhook
 const bot = new TelegramBot(process.env.TG_TOKEN, { webHook: true });
-bot.setWebHook(`${process.env.WEBHOOK_URL}/api/webhook/${process.env.SECRET}`);
+bot.setWebHook(`${domain}/api/webhook/${process.env.SECRET}`);
 
 await migrate();
 
