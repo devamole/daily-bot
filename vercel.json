@@ -1,7 +1,16 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/**/*.js", "use": "@vercel/node" }
+    { "src": "api/webhook.js",      "use": "@vercel/node" },
+    { "src": "api/send-morning.js", "use": "@vercel/node" },
+    { "src": "api/send-evening.js", "use": "@vercel/node" },
+    { "src": "api/test.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/webhook",       "dest": "/api/webhook.js" },
+    { "src": "/api/send-morning",  "dest": "/api/send-morning.js" },
+    { "src": "/api/send-evening",  "dest": "/api/send-evening.js" },
+    { "src": "api/test.js", "use": "@vercel/node" }
   ],
   "crons": [
     {
