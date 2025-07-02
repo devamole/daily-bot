@@ -2,24 +2,19 @@
   "version": 2,
   "builds": [
     { "src": "api/webhook.js",      "use": "@vercel/node" },
+    { "src": "api/setup-webhook.js","use": "@vercel/node" },
     { "src": "api/send-morning.js", "use": "@vercel/node" },
-    { "src": "api/send-evening.js", "use": "@vercel/node" },
-    { "src": "api/test.js", "use": "@vercel/node" }
+    { "src": "api/send-evening.js", "use": "@vercel/node" }
   ],
   "routes": [
     { "src": "/api/webhook",       "dest": "/api/webhook.js" },
+    { "src": "/api/webhook/(.*)",  "dest": "/api/webhook.js" },
+    { "src": "/api/setup-webhook", "dest": "/api/setup-webhook.js" },
     { "src": "/api/send-morning",  "dest": "/api/send-morning.js" },
-    { "src": "/api/send-evening",  "dest": "/api/send-evening.js" },
-    { "src": "/api/test", "dest": "/api/test.js" }
+    { "src": "/api/send-evening",  "dest": "/api/send-evening.js" }
   ],
   "crons": [
-    {
-      "path": "/api/send-morning",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/send-evening",
-      "schedule": "0 18 * * *"
-    }
+    { "path": "/api/send-morning", "schedule": "0 8 * * *" },
+    { "path": "/api/send-evening", "schedule": "0 18 * * *" }
   ]
 }
