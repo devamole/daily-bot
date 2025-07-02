@@ -1,4 +1,5 @@
 import { generateCoachResponse, generateCongratsMessage } from "./llmClient.js";
+import { escapeTelegramMarkdown } from "./utils.js";
 import { splitText, sleep } from "./utils.js";
 
 export default class NotificationService {
@@ -19,7 +20,9 @@ export default class NotificationService {
       "2. Aprender sobre \"Reactive Forms en Angular\".\n\n" +
       "Recuerda: sé breve y específico para mantener el enfoque.\n" +
       "¡Tú puedes con todo! 🌟🚀";
-    await this.bot.sendMessage(userId, mensajeDaily);
+
+    let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
+    await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
   // Acuse de recibido de la daily
@@ -27,7 +30,8 @@ export default class NotificationService {
     const ack =
       "✅ ¡Recibido! Gracias por compartir tu daily.\n" +
       "🌞 ¡Que tengas un día productivo y lleno de logros! 🚀";
-    await this.bot.sendMessage(userId, ack);
+    let scapeMsg = escapeTelegramMarkdown(ack)
+    await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
   // Mensaje vespertino
@@ -36,7 +40,9 @@ export default class NotificationService {
       "👋 ¡Hola de nuevo! Espero que hayas tenido un día increíble. ✨\n\n" +
       "Cuéntame, ¿cómo te fue hoy? ¿Lograste cumplir los objetivos que te propusiste esta mañana?\n\n" +
       "Recuerda que cada pequeño logro cuenta mucho, ¡estoy seguro que diste lo mejor de ti! 🌟😊";
-    await this.bot.sendMessage(userId, mensajeCierreDaily);
+    let scapeMsg = escapeTelegramMarkdown(mensajeCierreDaily)
+    
+    await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
   // Pregunta de follow-up si no se cumple al 100%
@@ -45,7 +51,8 @@ export default class NotificationService {
       "🌈 ¡Ánimo! A veces los días no salen como planeamos, y está bien. 😊\n\n" +
       "¿Me cuentas qué te dificultó cumplir con tus objetivos hoy? Entenderlo nos ayudará a mejorar mañana.\n\n" +
       "Recuerda que lo importante es intentarlo y seguir adelante. ¡Estoy aquí para apoyarte! ✨💪";
-    await this.bot.sendMessage(userId, mensajeObjetivosNoCumplidos);
+    let scapeMsg = escapeTelegramMarkdown(mensajeObjetivosNoCumplidos)
+    await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
   /**
@@ -75,7 +82,8 @@ export default class NotificationService {
   async _sendChunks(userId, text) {
     const chunks = splitText(text);
     for (const chunk of chunks) {
-      await this.bot.sendMessage(userId, chunk);
+      let scapeMsg = escapeTelegramMarkdown(chunk)
+      await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
       await sleep(2000);
     }
   }

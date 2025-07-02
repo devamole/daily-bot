@@ -3,17 +3,15 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import { db, migrate } from "../src/db.js";
 import NotificationService from "../src/notificationService.js";
+import { evaluateDaily } from "../src/llmClient.js";
 import { splitText } from "../src/utils.js";
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const isProd = process.env.VERCEL_URL !== undefined;
-const domain = isProd
-  ? `https://${process.env.VERCEL_URL}`
-  : `http://localhost:${PORT}`;
-
+    const env = process.env.VERCEL_ENV;
+    const isDev = env == "development"       
+    const domain = `https://${isDev ? "fd43-181-237-26-55.ngrok-free.app" : process.env.VERCEL_URL}`
 // Inicializa el bot en modo webhook
 const bot = new TelegramBot(process.env.TG_TOKEN, { webHook: true });
 bot.setWebHook(`${domain}/api/webhook/${process.env.SECRET}`);
@@ -37,17 +35,38 @@ app.post("/api/webhook/:secret", async (req, res) => {
 
     // 1) /start registra usuario y envía saludo diario
     if (text === "/start") {
-      await db.execute({
+    // 1) Asegurar el registro del usuario
+    await db.execute({
         sql: `
-          INSERT OR IGNORE INTO users (user_id, chat_id)
-          VALUES (?, ?)
+        INSERT OR IGNORE INTO users (user_id, chat_id)
+        VALUES (?, ?)
         `,
         args: [userId, chatId]
-      });
-      // Envía prompt matutino directamente tras /start
-      await notif.promptMorning(userId);
-      return res.sendStatus(200);
+    });
+
+    // 2) Calcular la fecha de hoy
+    const today = new Date().toISOString().split("T")[0];
+
+    // 3) Borrar cualquier estado previo para hoy
+    await db.execute({
+        sql: `DELETE FROM daily_status WHERE user_id = ? AND date = ?`,
+        args: [userId, today]
+    });
+
+    // 4) Crear un nuevo estado 'pending_morning'
+    await db.execute({
+        sql: `
+        INSERT INTO daily_status (user_id, date, state)
+        VALUES (?, ?, 'pending_morning')
+        `,
+        args: [userId, today]
+    });
+
+    // 5) Enviar prompt matutino
+    await notif.promptMorning(userId);
+    return res.sendStatus(200);
     }
+
 
     // 2) Obtener estado diario
     const { rows: statusRows } = await db.execute({
@@ -106,13 +125,20 @@ app.post("/api/webhook/:secret", async (req, res) => {
       });
       const planText = morningRows[0]?.text || "";
 
-      // Evaluar
-      const score = await notif.evaluatePlan(planText, text);
+      // Evaluar 
+      const score = await evaluateDaily(planText, text);
 
       // Felicitación o follow-up
       if (score === 100) {
         await notif.sendCongrats(userId, planText, text);
       } else {
+        await db.execute({
+            sql: `
+            INSERT INTO pending_responses (user_id, daily_id, type)
+            VALUES (?, ?, 'followup_question')
+            `,
+            args: [userId, dailyId]
+        });
         await notif.promptFollowUp(userId);
       }
 

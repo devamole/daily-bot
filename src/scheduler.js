@@ -19,18 +19,27 @@ export async function sendMorningPrompt() {
   });
 
   for (const { user_id } of users) {
-    // Asegura estado
+    // 1) Eliminar cualquier estado previo de hoy
+    await db.execute({
+      sql: `DELETE FROM daily_status WHERE user_id = ? AND date = ?`,
+      args: [user_id, today]
+    });
+
+    // 2) Crear un nuevo estado 'pending_morning'
     await db.execute({
       sql: `
-        INSERT OR IGNORE INTO daily_status (user_id, date, state)
+        INSERT INTO daily_status (user_id, date, state)
         VALUES (?, ?, 'pending_morning')
       `,
       args: [user_id, today]
     });
-    // Usa el NotificationService
+
+    // 3) Enviar prompt matutino
     await notif.promptMorning(user_id);
   }
 }
+
+
 
 /**
  * Envía la actualización vespertina a quienes están en 'pending_update'.
