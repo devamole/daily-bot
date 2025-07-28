@@ -3,7 +3,7 @@ import { migrate } from '../../src/db.js';
 
 // Desactiva el body parser de Next.js para recibir el JSON crudo de Telegram
 export const config = {
-  api: { bodyParser: false }
+  api: { bodyParser: false },
 };
 
 export default async function handler(req, res) {
