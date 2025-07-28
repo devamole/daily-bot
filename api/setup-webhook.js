@@ -20,7 +20,8 @@ export default async function handler(req, res) {
     const isDev = env === 'development';
     const domain = `https://${isDev
       ? 'fd43-181-237-26-55.ngrok-free.app'
-      : process.env.VERCEL_URL}`;
+      : "https://daily-bot-chi.vercel.app" //process.env.VERCEL_URL
+      }`;
 
     // 2) Construye la URL de webhook con query param
     const webhookUrl = `${domain}/api/webhook?secret=${process.env.SECRET}`;
