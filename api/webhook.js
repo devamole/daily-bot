@@ -20,7 +20,9 @@ await migrate();
 
 const notif = new NotificationService(bot);
 
-app.post("/api/webhook/:secret", async (req, res) => {
+app.post("/:secret", async (req, res) => {
+  bot.getWebHookInfo().then(info => console.log(info));
+
   if (req.params.secret !== process.env.SECRET) {
     return res.sendStatus(403);
   }
