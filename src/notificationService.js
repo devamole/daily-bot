@@ -10,15 +10,6 @@ export default class NotificationService {
     this.bot = bot;
   }
 
-  async  debugSend(userId, scapeMsg) {
-  console.log("DEBUG: About to send message", { userId, scapeMsg });
-  try {
-    const result = await this.bot.sendMessage(userId, scapeMsg, { parse_mode: 'Markdown' });
-    console.log("DEBUG: sendMessage SUCCESS:", result);
-  } catch (error) {
-    console.error("DEBUG: sendMessage ERROR:", error);
-  }
-}
   // Mensaje matutino
   async promptMorning(userId) {
     const mensajeDaily =
@@ -30,10 +21,13 @@ export default class NotificationService {
       "Recuerda: sé breve y específico para mantener el enfoque.\n" +
       "¡Tú puedes con todo! 🌟🚀";
 
-    let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
-    console.log("Entra para enviar mensaje matutino")
-    await this.debugSend(userId, scapeMsg)
-    //await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
+    try {
+      let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
+      let result = await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
+      console.log("DEBUG: sendMessage SUCCESS:", result);
+    } catch (error) {
+      console.error("DEBUG: sendMessage ERROR:", error);
+    }
   }
 
   
