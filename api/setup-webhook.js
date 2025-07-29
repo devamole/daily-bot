@@ -1,6 +1,7 @@
 import "dotenv/config";
 import bot from '../lib/bot';
 
+
 export const config = {
   api: {
     // no necesitamos bodyParser aquí, es una petición GET
