@@ -10,6 +10,15 @@ export default class NotificationService {
     this.bot = bot;
   }
 
+  async  debugSend(userId, scapeMsg) {
+  console.log("DEBUG: About to send message", { userId, scapeMsg: JSON.stringify(scapeMsg) });
+  try {
+    const result = await this.bot.sendMessage(userId, scapeMsg, { parse_mode: 'Markdown' });
+    console.log("DEBUG: sendMessage SUCCESS:", result);
+  } catch (error) {
+    console.error("DEBUG: sendMessage ERROR:", error);
+  }
+}
   // Mensaje matutino
   async promptMorning(userId) {
     const mensajeDaily =
@@ -23,9 +32,11 @@ export default class NotificationService {
 
     let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
     console.log("Entra para enviar mensaje matutino")
-    await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
+    this.debugSend(userId, scapeMsg)
+    //await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
+  
   // Acuse de recibido de la daily
   async ackDaily(userId) {
     const ack =
