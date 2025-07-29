@@ -22,7 +22,9 @@ export default class NotificationService {
       "¡Tú puedes con todo! 🌟🚀";
 
     try {
+      console.log("Antes de formatear el mensaje")
       let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
+      console.log("Después de formatear mensaje", scapeMsg)
       let result = await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
       console.log("DEBUG: sendMessage SUCCESS:", result);
     } catch (error) {
