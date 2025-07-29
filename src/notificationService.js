@@ -22,6 +22,7 @@ export default class NotificationService {
       "¡Tú puedes con todo! 🌟🚀";
 
     let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
+    console.log("Entra para enviar mensaje matutino")
     await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
   }
 
