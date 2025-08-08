@@ -24,7 +24,7 @@ export default class NotificationService {
     try {
       console.log("Antes de formatear el mensaje")
       let scapeMsg = escapeTelegramMarkdown(mensajeDaily)
-      console.log("Después de formatear mensaje", scapeMsg)
+      console.log("Después de formatear mensaje")
       let result = await this.bot.sendMessage(userId, scapeMsg, {parse_mode: "Markdown"});
       console.log("DEBUG: sendMessage SUCCESS:", result);
     } catch (error) {

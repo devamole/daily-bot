@@ -5,7 +5,7 @@ import { migrate } from '../src/db.js';
 // Desactiva el body parser de Vercel para recibir el JSON crudo
 export const config = {
   api: {
-    bodyParser: false,
+    bodyParser: true,
   },
 };
 
