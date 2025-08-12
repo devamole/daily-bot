@@ -13,19 +13,26 @@ export class TelegramAdapter {
     const msg = update?.message;
     if (!msg || !msg.from || !msg.chat) return;
 
-    const text = msg.text ?? '';
-    const isStart = text.startsWith('/start');
+    const text = msg.text ?? "";
+    const isStart = text.startsWith("/start");
+
+    // Evita 'as const' en condicionales; tipa explícitamente
+    const kind: NormalizedUpdate["type"] = isStart ? "command" : "message";
 
     const norm: NormalizedUpdate = {
-      provider: 'telegram',
+      provider: "telegram",
       event_id: String(update.update_id),
       ts: Number(msg.date) || Math.floor(Date.now() / 1000),
       user: { id: String(msg.from.id) },
       chat: { id: String(msg.chat.id) },
-      type: isStart ? 'command' : 'message',
-      command: isStart ? 'start' : undefined,
+      type: kind,
       text
     };
+
+    // Solo incluye 'command' cuando aplica (exactOptionalPropertyTypes)
+    if (isStart) {
+      norm.command = "start";
+    }
 
     await this.service.handle(norm);
   }

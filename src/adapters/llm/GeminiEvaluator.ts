@@ -7,7 +7,7 @@ interface GeminiOptions {
 }
 
 export class GeminiEvaluator extends EvaluatorPort {
-  private readonly apiKey?: string;
+  private readonly apiKey: string | undefined;
   private readonly model: string;
   private readonly rubricVersion: string;
 
@@ -54,14 +54,13 @@ export class GeminiEvaluator extends EvaluatorPort {
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
 
     const score = clamp(parseInt(parsed.score, 10), 0, 100);
-    const res: EvalResult = {
+    return {
       score,
       rationale: String(parsed.rationale ?? '').slice(0, 200),
       advice: String(parsed.advice ?? '').slice(0, 200),
       version: this.rubricVersion,
       model: this.model
     };
-    return res;
   }
 }
 

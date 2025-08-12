@@ -7,8 +7,9 @@ import { DailyService } from "../../core/daily/DailyService";
 
 const repo = new TursoRepo();
 const notifier = new TelegramNotifier(process.env.TELEGRAM_TOKEN || '');
+
 const evaluator = new GeminiEvaluator({
-  apiKey: process.env.GEMINI_API_KEY,
+  ...(process.env.GEMINI_API_KEY ? { apiKey: process.env.GEMINI_API_KEY } : {}),
   model: process.env.LLM_MODEL || 'gemini-1.5-flash',
   rubricVersion: process.env.LLM_RUBRIC_VERSION || 'v1'
 });

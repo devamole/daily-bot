@@ -17,7 +17,17 @@ export class TursoRepo extends RepoPort {
 
   async getUser(user_id: string): Promise<UserRow | null> {
     const { rows } = await db.execute({ sql: `SELECT * FROM users WHERE user_id = ?`, args: [user_id] });
-    return (rows?.[0] as UserRow) ?? null;
+    const r = rows?.[0] as any;
+    if (!r) return null;
+    const out: UserRow = {
+      user_id: String(r.user_id),
+      chat_id: String(r.chat_id),
+      tz: String(r.tz ?? 'America/Bogota'),
+      provider: String(r.provider ?? 'telegram'),
+      provider_user_id: String(r.provider_user_id ?? r.user_id),
+      created_at: r.created_at != null ? Number(r.created_at) : 0
+    };
+    return out;
   }
 
   async getLastDaily(user_id: string): Promise<DailyRow | null> {
@@ -25,7 +35,21 @@ export class TursoRepo extends RepoPort {
       sql: `SELECT * FROM daily_status WHERE user_id = ? ORDER BY date DESC LIMIT 1`,
       args: [user_id]
     });
-    return (rows?.[0] as DailyRow) ?? null;
+    const r = rows?.[0] as any;
+    if (!r) return null;
+    const out: DailyRow = {
+      id: Number(r.id),
+      user_id: String(r.user_id),
+      date: String(r.date),
+      state: String(r.state) as DailyState,
+      score: r.score != null ? Number(r.score) : null,
+      eval_model: r.eval_model ?? null,
+      eval_version: r.eval_version ?? null,
+      eval_rationale: r.eval_rationale ?? null,
+      created_at: r.created_at != null ? Number(r.created_at) : 0,
+      updated_at: r.updated_at != null ? Number(r.updated_at) : 0
+    };
+    return out;
   }
 
   async createDaily(user_id: string, date: string, state: DailyState, opts?: { overwriteToday?: boolean }): Promise<number> {
@@ -39,8 +63,8 @@ export class TursoRepo extends RepoPort {
       `,
       args: [user_id, date, state]
     });
-    // @ts-expect-error libsql types
-    return Number(r.lastInsertRowid ?? 0);
+    const id = Number((r as any).lastInsertRowid ?? 0);
+    return id;
   }
 
   async setDailyState(dailyId: number, state: DailyState, patch: Partial<DailyRow> = {}): Promise<void> {
@@ -88,13 +112,14 @@ export class TursoRepo extends RepoPort {
       `,
       args: [user_id, date]
     });
-    return String(rows?.[0]?.text ?? '');
+    const r = rows?.[0] as any;
+    return r?.text ? String(r.text) : '';
   }
 
   async hasEvent(provider: string, event_id: string): Promise<boolean> {
     if (!event_id) return false;
     const { rows } = await db.execute({
-      sql: `SELECT 1 FROM messages WHERE provider = ? AND update_id = ? LIMIT 1`,
+      sql: `SELECT 1 AS ok FROM messages WHERE provider = ? AND update_id = ? LIMIT 1`,
       args: [provider, event_id]
     });
     return rows.length > 0;
