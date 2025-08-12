@@ -1,10 +1,19 @@
-// ESM wrapper universal: carga dinámicamente el handler desde dist (ESM o CJS)
-export const config = { runtime: 'nodejs' };
+'use strict';
 
-const modPromise = import('../dist/entrypoints/http/vercel.webhook.js');
+// Vercel leerá esto:
+module.exports.config = { runtime: 'nodejs' };
 
-export default async function handler(req, res) {
-  const mod = await modPromise;
-  // mod.default existe en ESM; en CJS Node mapea a .default también
-  return mod.default(req, res);
+function pickHandler(mod) {
+  if (typeof mod === 'function') return mod;                          // CJS: module.exports = handler
+  if (mod && typeof mod.default === 'function') return mod.default;   // ESM/CJS: export default handler
+  if (mod && typeof mod.handler === 'function') return mod.handler;   // por si exportaste { handler }
+  if (mod && mod.default && typeof mod.default.default === 'function') return mod.default.default; // doble wrap raro
+  throw new Error('Handler export not found in dist/entrypoints/http/vercel.webhook.js');
 }
+
+// Wrapper universal: carga el handler (ESM o CJS) *cuando Vercel lo llama*
+module.exports = async function handler(req, res) {
+  const mod = await import('../dist/entrypoints/http/vercel.webhook.js');
+  const fn = pickHandler(mod);
+  return fn(req, res);
+};
