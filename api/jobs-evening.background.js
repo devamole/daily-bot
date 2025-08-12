@@ -1,8 +1,9 @@
-// ESM wrapper que carga el job compilado (CJS) desde dist
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+// ESM wrapper universal para el job nocturno
+export const config = { runtime: 'nodejs' };
 
-const mod = require('../dist/entrypoints/jobs/vercel.evening.background.js');
+const modPromise = import('../dist/entrypoints/jobs/vercel.evening.background.js');
 
-export const config = mod.config ?? { runtime: 'nodejs' };
-export default mod.default || mod;
+export default async function handler(req, res) {
+  const mod = await modPromise;
+  return mod.default(req, res);
+}
