@@ -1,6 +1,7 @@
-// Vercel Background Function (TypeScript)
-// Reexporta el job nocturno desde src/entrypoints/jobs/vercel.evening.background
-import handler, { config as routeConfig } from '../dist/entrypoints/jobs/vercel.evening.background';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-export const config = routeConfig;
-export default handler;
+const mod = require('../dist/entrypoints/jobs/vercel.evening.background.js');
+
+export const config = mod.config;
+export default mod.default;

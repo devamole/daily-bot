@@ -1,6 +1,4 @@
-// Healthcheck ligero para debugging/uptime
-export const config = { runtime: 'nodejs' } as const;
-
-export default async function handler(_req: any, res: any) {
+export const config = { runtime: 'nodejs20.x' };
+export default async function handler(_req, res) {
   res.status(200).end('ok');
 }

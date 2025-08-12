@@ -1,6 +1,7 @@
-// Vercel Serverless Function (TypeScript)
-// Reexporta el handler real (con validación de secreto) desde src/entrypoints/http/vercel.webhook
-import handler, { config as routeConfig } from '../dist/entrypoints/http/vercel.webhook';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-export const config = routeConfig;
-export default handler;
+const mod = require('../dist/entrypoints/http/vercel.webhook.js');
+
+export const config = mod.config;
+export default mod.default;
