@@ -3,17 +3,18 @@ import { db } from "../../db/db";
 
 export class TursoRepo extends RepoPort {
   async upsertUser(u: Pick<UserRow, 'user_id' | 'chat_id' | 'tz' | 'provider' | 'provider_user_id'>): Promise<void> {
-    await db.execute({
-      sql: `
-        INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at)
-        VALUES (?, ?, ?, ?, ?, COALESCE(created_at, unixepoch()))
-        ON CONFLICT(user_id) DO UPDATE SET
-          chat_id = excluded.chat_id,
-          tz = excluded.tz
-      `,
-      args: [u.user_id, u.chat_id, u.tz, u.provider, u.provider_user_id]
-    });
-  }
+  await db.execute({
+    sql: `
+      INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, unixepoch())
+      ON CONFLICT(user_id) DO UPDATE SET
+        chat_id = excluded.chat_id,
+        tz = excluded.tz
+      -- Nota: no tocamos created_at en el UPDATE; se preserva el valor original
+    `,
+    args: [u.user_id, u.chat_id, u.tz, u.provider, u.provider_user_id]
+  });
+}
 
   async getUser(user_id: string): Promise<UserRow | null> {
     const { rows } = await db.execute({ sql: `SELECT * FROM users WHERE user_id = ?`, args: [user_id] });
