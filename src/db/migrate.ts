@@ -45,7 +45,6 @@ async function ensureSchema(): Promise<void> {
       )`
     });
 
-    // ⚠️ Esta definición incluye 'provider' y 'update_id' (lo que usa el código)
     await db.execute({
       sql: `
       CREATE TABLE IF NOT EXISTS messages (
@@ -62,7 +61,6 @@ async function ensureSchema(): Promise<void> {
       )`
     });
 
-    // 2) Índices (crearlos solo después de la tabla correcta)
     await db.execute({
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS uq_msg_event ON messages(provider, update_id)`
     });
