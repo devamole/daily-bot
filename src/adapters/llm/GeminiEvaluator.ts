@@ -168,8 +168,8 @@ function computeHeuristicScore(plan: string, result: string): number {
 function safeParseJSON(s: string): any {
   try {
     return JSON.parse(s);
-  } catch {
-    console.warn(`[GeminiEvaluator] JSON inválido: ${s}`);
+  } catch(e) {
+    console.warn(`[GeminiEvaluator] JSON inválido: ${e}`);
     return {};
   }
 }
