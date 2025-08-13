@@ -93,7 +93,7 @@ export class DailyService {
       const plan = await this.repo.getMorningTextByDailyId(dailyId);
       const { score, advice, rationale, version, model } =
         await this.evaluator.evaluate(plan || '', text);
-      console.log
+      console.log(`[DailyService] Evaluación del update: score=${score}, advice=${advice}, rationale=${rationale}, version=${version}, model=${model}`);
       if (score > 80) {
         await this.notifier.sendText(userId, `🎉 ¡Excelente! Cumpliste tus objetivos. ${advice || ''}`.trim());
         await this.repo.setDailyState(dailyId, 'done', {
