@@ -49,7 +49,11 @@ export class GeminiEvaluator extends EvaluatorPort {
       body: JSON.stringify({ contents: [{ parts: prompt.map(p => ({ text: p.text })) }] })
     });
 
-    const data: any = await r.json().catch(() => ({}));
+    console.log('[GeminiEvaluator] Respuesta de Gemini:', r.status, r.statusText, r);
+    const data: any = await r.json().catch((e) => {  
+      console.error('[GeminiEvaluator] Error al parsear respuesta JSON:', e);
+      return( {  });
+    });
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     console.log('[GeminiEvaluator] Respuesta cruda:', raw);
     let parsed: any = {};
