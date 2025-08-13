@@ -54,8 +54,9 @@ export class GeminiEvaluator extends EvaluatorPort {
     console.log('[GeminiEvaluator] Respuesta cruda:', raw);
     let parsed: any = {};
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
-
+    console.log('[GeminiEvaluator] Respuesta parseada:', parsed);
     const score = clamp(parseInt(parsed.score, 10), 0, 100);
+    console.log(`[GeminiEvaluator] Evaluación: score=${score}`);
     return {
       score,
       rationale: String(parsed.rationale ?? '').slice(0, 200),
