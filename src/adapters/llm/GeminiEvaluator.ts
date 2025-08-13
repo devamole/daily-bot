@@ -78,7 +78,7 @@ export class GeminiEvaluator extends EvaluatorPort {
           const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
           console.log(`[GeminiEvaluator] Respuesta JSON: ${raw.slice(0, 200)}`);
           const parsed = safeParseJSON(raw);
-          console.log(`[GeminiEvaluator] Evaluación: ${JSON.stringify(parsed)}`);
+          console.log(`[GeminiEvaluator] Evaluación: ${parsed}`);
           const score = clampNumber(parsed.score, 0, 100, 60);
           const out: EvalResult = {
             score,
@@ -169,6 +169,7 @@ function safeParseJSON(s: string): any {
   try {
     return JSON.parse(s);
   } catch {
+    console.warn(`[GeminiEvaluator] JSON inválido: ${s}`);
     return {};
   }
 }
