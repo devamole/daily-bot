@@ -22,7 +22,9 @@ export class GeminiEvaluator extends EvaluatorPort {
   }
 
   async evaluate(planText: string, updateText: string): Promise<EvalResult> {
+    console.log('[GeminiEvaluator] Evaluando plan y resultado con Gemini...');
     if (!this.apiKey) {
+      console.warn('[GeminiEvaluator] Usando evaluación dummy (API_KEY ausente)');
       const ok = planText.trim().length > 5 && updateText.trim().length > 5;
       return {
         score: ok ? 100 : 60,
@@ -40,7 +42,7 @@ export class GeminiEvaluator extends EvaluatorPort {
       { text: "Criterios: claridad del plan, alineación plan-resultado, evidencia de cumplimiento. Umbral 100 = cumplimiento total." },
       { text: "Responde SOLO JSON válido." }
     ];
-
+    console.log('[GeminiEvaluator] Prompt:', prompt.map(p => p.text).join('\n'));
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -49,7 +51,7 @@ export class GeminiEvaluator extends EvaluatorPort {
 
     const data: any = await r.json().catch(() => ({}));
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-
+    console.log('[GeminiEvaluator] Respuesta cruda:', raw);
     let parsed: any = {};
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
 
