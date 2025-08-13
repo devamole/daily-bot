@@ -94,7 +94,7 @@ export class DailyService {
       const { score, advice, rationale, version, model } =
         await this.evaluator.evaluate(plan || '', text);
 
-      if (score >= 100) {
+      if (score >= 80) {
         await this.notifier.sendText(userId, `🎉 ¡Excelente! Cumpliste tus objetivos. ${advice || ''}`.trim());
         await this.repo.setDailyState(dailyId, 'done', {
           score, eval_version: version, eval_model: model, eval_rationale: rationale
