@@ -1,43 +1,48 @@
 import { EvaluatorPort, EvalResult } from "../../core/ports/EvaluatorPort";
 
 type GeminiOptions = {
-  apiKey?: string;
+  apiKey?: string;       // opcional de entrada; internamente se normaliza a string
   model?: string;
   rubricVersion?: string;
   timeoutMs?: number;
   maxRetries?: number;
+  baseUrl?: string;      // opcional (override), por defecto el endpoint público
 };
 
 export class GeminiEvaluator extends EvaluatorPort {
-  private readonly apiKey?: string;
+  private readonly apiKey: string;        // nunca undefined
   private readonly model: string;
   private readonly rubricVersion: string;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
+  private readonly baseUrl: string;
 
   constructor(opts: GeminiOptions) {
     super();
-    this.apiKey = (opts.apiKey ?? process.env.GEMINI_API_KEY ?? '').trim();
-    this.model = opts.model ?? "gemini-1.5-flash";
-    this.rubricVersion = opts.rubricVersion ?? "v1";
+    // Normaliza para satisfacer exactOptionalPropertyTypes
+    this.apiKey = (opts.apiKey ?? process.env.GEMINI_API_KEY ?? "").trim();
+    this.model = opts.model ?? (process.env.LLM_MODEL ?? "gemini-2.5-flash");
+    this.rubricVersion = opts.rubricVersion ?? (process.env.LLM_RUBRIC_VERSION ?? "v1");
     this.timeoutMs =
       typeof opts.timeoutMs === "number"
         ? opts.timeoutMs
-        : Number.parseInt(process.env.GEMINI_TIMEOUT_MS || "", 10) || 6000;
+        : Number.parseInt(process.env.GEMINI_TIMEOUT_MS ?? "", 10) || 6000;
     this.maxRetries =
       typeof opts.maxRetries === "number"
         ? opts.maxRetries
-        : Number.parseInt(process.env.GEMINI_MAX_RETRIES || "", 10) || 2;
+        : Number.parseInt(process.env.GEMINI_MAX_RETRIES ?? "", 10) || 2;
+    this.baseUrl = (opts.baseUrl ?? process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com").replace(
+      /\/+$/,
+      ""
+    );
 
     if (!this.apiKey) {
-      console.warn(
-        "[GeminiEvaluator] GEMINI_API_KEY ausente: se usará evaluación heurística local."
-      );
+      console.warn("[GeminiEvaluator] GEMINI_API_KEY ausente: se usará evaluación heurística local.");
     }
   }
 
   async evaluate(planText: string, updateText: string): Promise<EvalResult> {
-    // Fallback inmediato si no hay API key
+    // Fallback determinista si no hay API key
     if (!this.apiKey) {
       return heuristic(planText, updateText, this.rubricVersion, "dummy");
     }
@@ -53,11 +58,16 @@ export class GeminiEvaluator extends EvaluatorPort {
       try {
         const controller = new AbortController();
         const tid = setTimeout(() => controller.abort(), this.timeoutMs);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+
+        const url = `${this.baseUrl}/v1beta/models/${encodeURIComponent(this.model)}:generateContent`;
 
         const res = await fetch(url, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            // ✅ API key en header (no loguear nunca este valor)
+            "x-goog-api-key": this.apiKey,
+          },
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
@@ -79,51 +89,32 @@ export class GeminiEvaluator extends EvaluatorPort {
           return out;
         }
 
-        // Reintentos para 429/5xx
+        // Reintentar para 429/5xx
         if ([429, 500, 502, 503, 504].includes(res.status)) {
           const b = backoffMs(attempt);
-          console.warn(
-            `[GeminiEvaluator] HTTP ${res.status}; reintento en ${b}ms (intento ${
-              attempt + 1
-            }/${this.maxRetries}).`
-          );
+          console.warn(`[GeminiEvaluator] HTTP ${res.status}; reintento en ${b}ms (intento ${attempt + 1}/${this.maxRetries}).`);
           await sleep(b);
           continue;
         }
 
         const txt = await res.text();
-        console.error(
-          `[GeminiEvaluator] Respuesta no reintetable ${res.status}: ${txt.slice(
-            0,
-            200
-          )}`
-        );
+        console.error(`[GeminiEvaluator] Respuesta no reintetable ${res.status}: ${txt.slice(0, 200)}`);
         lastErr = new Error(`Gemini ${res.status}`);
         break;
       } catch (e: any) {
         lastErr = e;
         if (attempt < this.maxRetries) {
           const b = backoffMs(attempt);
-          console.warn(
-            `[GeminiEvaluator] Falla de red/timeout (${e?.name || e}); reintento en ${b}ms.`
-          );
+          console.warn(`[GeminiEvaluator] Falla de red/timeout (${e?.name || e}); reintento en ${b}ms.`);
           await sleep(b);
           continue;
         }
       }
     }
 
-    console.error(
-      `[GeminiEvaluator] Fallback heurístico por error: ${
-        (lastErr as any)?.message || String(lastErr)
-      }`
-    );
-    return heuristic(
-      planText,
-      updateText,
-      this.rubricVersion,
-      `${this.model}-fallback`
-    );
+    // Fallback heurístico si agotamos reintentos
+    console.error(`[GeminiEvaluator] Fallback heurístico por error: ${(lastErr as any)?.message || String(lastErr)}`);
+    return heuristic(planText, updateText, this.rubricVersion, `${this.model}-fallback`);
   }
 
   private buildPrompt(planText: string, updateText: string): string {
@@ -137,23 +128,14 @@ export class GeminiEvaluator extends EvaluatorPort {
   }
 }
 
-/* ===== Heurística de respaldo (determinista) ===== */
+/* ================= Fallback heurístico ================= */
 
-function heuristic(
-  plan: string,
-  result: string,
-  version: string,
-  model: string
-): EvalResult {
+function heuristic(plan: string, result: string, version: string, model: string): EvalResult {
   const score = computeHeuristicScore(plan, result);
   const advice =
-    score === 100
-      ? "Sigue con la misma disciplina."
-      : "Define 1–3 objetivos concretos y medibles para mañana.";
+    score === 100 ? "Sigue con la misma disciplina." : "Define 1–3 objetivos concretos y medibles para mañana.";
   const rationale =
-    score === 100
-      ? "Plan y resultado alineados (heurística)."
-      : "No se encontró evidencia fuerte de cumplimiento (heurística).";
+    score === 100 ? "Plan y resultado alineados (heurística)." : "No se encontró evidencia fuerte de cumplimiento (heurística).";
   return { score, advice, rationale, version, model };
 }
 
@@ -180,7 +162,7 @@ function computeHeuristicScore(plan: string, result: string): number {
   return 70;
 }
 
-/* ===== Utilidades ===== */
+/* ================= Utilidades ================= */
 
 function safeParseJSON(s: string): any {
   try {
