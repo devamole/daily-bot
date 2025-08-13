@@ -9,11 +9,9 @@ export async function migrateOnce(): Promise<void> {
 }
 
 async function ensureSchema(): Promise<void> {
-  // Usa la API de transacciones del cliente (seguro en Turso/libSQL)
   const tx = await db.transaction("write");
   let committed = false;
   try {
-    // Tablas (incluyen las columnas que usa tu código: provider y update_id)
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
@@ -44,6 +42,7 @@ async function ensureSchema(): Promise<void> {
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        daily_id INTEGER,                    -- FK lógica al ciclo
         chat_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         message_id INTEGER,
@@ -56,17 +55,27 @@ async function ensureSchema(): Promise<void> {
       )
     `);
 
-    // Índices después de asegurar tablas/columnas
+    // Asegura columnas que podrían faltar si existía tabla vieja
+    await addColumnIfMissing(tx, "messages", "daily_id", "INTEGER");
+    await addColumnIfMissing(tx, "messages", "provider", "TEXT DEFAULT 'telegram'");
+    await addColumnIfMissing(tx, "messages", "update_id", "TEXT");
+
+    // Índices
     await tx.execute(`CREATE UNIQUE INDEX IF NOT EXISTS uq_msg_event ON messages(provider, update_id)`);
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_messages_user_ts ON messages(user_id, timestamp)`);
+    await tx.execute(`CREATE INDEX IF NOT EXISTS ix_messages_daily_type ON messages(daily_id, type, id)`);
 
-    await tx.commit();
-    committed = true;
-  } catch (err) {
-    // Si la transacción estaba abierta, ciérrala; si ya no, ignora el rollback
-    if (!committed) {
-      try { await tx.rollback(); } catch {}
-    }
-    throw err;
+    await tx.commit(); committed = true;
+  } catch (e) {
+    if (!committed) { try { await tx.rollback(); } catch {} }
+    throw e;
+  }
+}
+
+async function addColumnIfMissing(tx: any, table: string, column: string, def: string) {
+  const { rows } = await tx.execute(`PRAGMA table_info(${table})`);
+  const exists = rows.some((r: any) => String(r.name) === column);
+  if (!exists) {
+    await tx.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
   }
 }
