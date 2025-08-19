@@ -1,17 +1,32 @@
 name: cron-dispatcher
+
 on:
   schedule:
-    - cron: "*/5 * * * *"  
-  workflow_dispatch: {}
+    - cron: '*/5 * * * *'     # cada 5 min (UTC)
+  workflow_dispatch: {}        
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-dispatcher
+  cancel-in-progress: false
 
 jobs:
   tick:
     runs-on: ubuntu-latest
     steps:
-      - name: Call dispatcher
+      - name: Call dispatcher (prod)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          APP_URL: ${{ secrets.APP_URL }}   # ej: https://tu-app.vercel.app
+          APP_URL: ${{ secrets.APP_URL }}   
         run: |
-          curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${APP_URL}/api/cron.dispatcher"
+          set -euo pipefail
+          curl -sS -D /tmp/headers.txt \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL}/api/cron.dispatcher" \
+            -o /tmp/body.json
+          echo "=== Status line ==="
+          head -n1 /tmp/headers.txt
+          echo "=== Body ==="
+          cat /tmp/body.json

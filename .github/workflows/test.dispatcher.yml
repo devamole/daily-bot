@@ -1,14 +1,41 @@
-- name: Call dispatcher
-  env:
-    CRON_SECRET: ${{ secrets.CRON_SECRET }}
-    APP_URL: ${{ secrets.APP_URL }}
-  run: |
-    set -euo pipefail
-    curl -sS -D /tmp/headers.txt \
-      -H "Authorization: Bearer ${CRON_SECRET}" \
-      "${APP_URL}/api/cron.dispatcher" \
-      -o /tmp/body.json
-    echo "=== Status line ==="
-    head -n1 /tmp/headers.txt
-    echo "=== Body ==="
-    cat /tmp/body.json
+name: test-dispatcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: 'Override APP_URL (opcional)'
+        required: false
+      cron_secret:
+        description: 'Override CRON_SECRET (opcional)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call dispatcher (manual)
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          # Usa inputs si te los pasan; si no, usa los secrets por defecto
+          APP="${{ github.event.inputs.app_url }}"
+          SEC="${{ github.event.inputs.cron_secret }}"
+          if [ -n "${APP}" ]; then APP_URL="${APP}"; fi
+          if [ -n "${SEC}" ]; then CRON_SECRET="${SEC}"; fi
+
+          echo "Target: ${APP_URL}"
+          curl -sS -D /tmp/headers.txt \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL}/api/cron.dispatcher" \
+            -o /tmp/body.json
+
+          echo "=== Status line ==="
+          head -n1 /tmp/headers.txt
+          echo "=== Body ==="
+          cat /tmp/body.json
