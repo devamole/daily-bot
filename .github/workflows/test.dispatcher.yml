@@ -1,0 +1,14 @@
+- name: Call dispatcher
+  env:
+    CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    APP_URL: ${{ secrets.APP_URL }}
+  run: |
+    set -euo pipefail
+    curl -sS -D /tmp/headers.txt \
+      -H "Authorization: Bearer ${CRON_SECRET}" \
+      "${APP_URL}/api/cron.dispatcher" \
+      -o /tmp/body.json
+    echo "=== Status line ==="
+    head -n1 /tmp/headers.txt
+    echo "=== Body ==="
+    cat /tmp/body.json
