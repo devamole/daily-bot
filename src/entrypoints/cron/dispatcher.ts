@@ -13,15 +13,12 @@ const cron = new CronService(repo, notifier, {
   windowMinutes: 10,
 });
 
-/** Lee el header Authorization tanto en Node (objeto) como si existiera headers.get() */
 function readAuthorizationHeader(req: any): string | null {
-  // Node/Express/Next API (Node runtime)
   const hObj =
     (req?.headers?.authorization as string | undefined) ??
     (req?.headers?.Authorization as string | undefined);
   if (typeof hObj === "string") return hObj;
 
-  // Por si algún runtime expone Headers (Edge-like)
   try {
     const hGet =
       req?.headers?.get?.("authorization") ??
@@ -36,7 +33,7 @@ function readAuthorizationHeader(req: any): string | null {
 function isAuthorized(req: any): boolean {
   const expected = (process.env.CRON_SECRET ?? "").trim();
   if (!expected) {
-    // Si no hay CRON_SECRET definido, permitimos (útil para pruebas locales)
+    // Permite, solo con fines de desarrollo
     return true;
   }
   const auth = readAuthorizationHeader(req);
@@ -46,7 +43,6 @@ function isAuthorized(req: any): boolean {
 }
 
 export default async function handler(req: any, res: any) {
-  // Solo GET/HEAD por higiene (Vercel Cron invoca GET)
   if (req.method !== "GET" && req.method !== "HEAD") {
     return res.status(405).end("Method Not Allowed");
   }

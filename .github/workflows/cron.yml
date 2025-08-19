@@ -1,0 +1,17 @@
+name: cron-dispatcher
+on:
+  schedule:
+    - cron: "*/5 * * * *"  
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call dispatcher
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}   # ej: https://tu-app.vercel.app
+        run: |
+          curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL}/api/cron.dispatcher"
