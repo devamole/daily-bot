@@ -90,13 +90,10 @@ export class GeminiEvaluator extends EvaluatorPort {
 
         if (res.ok) {
           const data: any = await res.json().catch((e) => {
-            console.error(`[GeminiEvaluator] Error al parsear JSON: ${e}`);
             return {};
           });
-          console.log(`[GeminiEvaluator] Respuesta exitosa: ${res.status} ${data?.candidates?.[0]?.content?.parts?.[0]?.text?.slice(0, 200) || "No candidates found" + JSON.stringify(data)}`);
           const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
           const parsed = safeParseModelJSON(raw);
-          console.log(`[GeminiEvaluator] Respuesta parseada: ${JSON.stringify(parsed)}`);
           const score = clampNumber(parsed.score, 0, 100, 60);
           const out: EvalResult = {
             score,
@@ -111,7 +108,6 @@ export class GeminiEvaluator extends EvaluatorPort {
         // Reintentar para 429/5xx
         if ([429, 500, 502, 503, 504].includes(res.status)) {
           const b = backoffMs(attempt);
-          console.warn(`[GeminiEvaluator] HTTP ${res.status}; reintento en ${b}ms (intento ${attempt + 1}/${this.maxRetries}).`);
           await sleep(b);
           continue;
         }

@@ -33,6 +33,8 @@ async function ensureSchema(): Promise<void> {
         eval_model TEXT,
         eval_version TEXT,
         eval_rationale TEXT,
+        morning_prompt_at INTEGER,
+        evening_prompt_at INTEGER,
         created_at INTEGER DEFAULT (unixepoch()),
         updated_at INTEGER DEFAULT (unixepoch()),
         UNIQUE (user_id, date)
@@ -42,7 +44,7 @@ async function ensureSchema(): Promise<void> {
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        daily_id INTEGER,                    -- FK lógica al ciclo
+        daily_id INTEGER,
         chat_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         message_id INTEGER,
@@ -55,7 +57,9 @@ async function ensureSchema(): Promise<void> {
       )
     `);
 
-    // Asegura columnas que podrían faltar si existía tabla vieja
+    // Asegura columnas si ya existían tablas antiguas
+    await addColumnIfMissing(tx, "daily_status", "morning_prompt_at", "INTEGER");
+    await addColumnIfMissing(tx, "daily_status", "evening_prompt_at", "INTEGER");
     await addColumnIfMissing(tx, "messages", "daily_id", "INTEGER");
     await addColumnIfMissing(tx, "messages", "provider", "TEXT DEFAULT 'telegram'");
     await addColumnIfMissing(tx, "messages", "update_id", "TEXT");
@@ -64,6 +68,7 @@ async function ensureSchema(): Promise<void> {
     await tx.execute(`CREATE UNIQUE INDEX IF NOT EXISTS uq_msg_event ON messages(provider, update_id)`);
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_messages_user_ts ON messages(user_id, timestamp)`);
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_messages_daily_type ON messages(daily_id, type, id)`);
+    await tx.execute(`CREATE INDEX IF NOT EXISTS ix_daily_user_date ON daily_status(user_id, date)`);
 
     await tx.commit(); committed = true;
   } catch (e) {
