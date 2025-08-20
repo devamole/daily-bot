@@ -1,4 +1,3 @@
-// src/entrypoints/http/generic.webhook.ts
 import { migrateOnce } from "../../db/migrate";
 import { db } from "../../db/db";
 import { TursoRepo } from "../../adapters/repo/TursoRepo";
@@ -6,7 +5,7 @@ import { TelegramHttpNotifier } from "../../adapters/notifier/TelegramHttpNotifi
 import { DailyService } from "../../core/daily/DailyService";
 import TelegramAdapter from "../../adapters/channel/telegram/TelegramAdapter";
 
-/** Evaluador: usa Gemini JSON; si falla, devuelve heurístico simple. */
+/** Evaluador con Gemini (JSON estricto) + fallback heurístico */
 async function evaluate(planText: string, updateText: string): Promise<{
   score: number; rationale?: string; advice?: string; model?: string; version?: string;
 }> {
@@ -14,8 +13,8 @@ async function evaluate(planText: string, updateText: string): Promise<{
   const model = process.env.LLM_MODEL || "gemini-2.5-flash";
   const version = process.env.LLM_RUBRIC_VERSION || "v1";
 
+  // Fallback si no hay API key
   if (!apiKey) {
-    // Fallback: si no hay API key, heurística mínima
     const ok = /cumpl[ií]|logr[eé]|hecho|termin/i.test(updateText) ? 100 : 70;
     return { score: ok, model, version, rationale: "fallback-no-key" };
   }
@@ -34,19 +33,19 @@ Responde SOLO JSON válido.`;
     method: "POST",
     headers: {
       "x-goog-api-key": apiKey,
-      "content-type": "application/json"
+      "content-type": "application/json",
     },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: 200,
-        responseMimeType: "application/json"
-      }
-    })
+        responseMimeType: "application/json",
+      },
+    }),
   });
-  const raw = await res.text();
 
+  const raw = await res.text();
   try {
     const data = JSON.parse(raw);
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
@@ -58,7 +57,7 @@ Responde SOLO JSON válido.`;
       rationale: parsed?.rationale,
       advice: parsed?.advice,
       model,
-      version
+      version,
     };
   } catch {
     const ok = /cumpl[ií]|logr[eé]|hecho|termin/i.test(updateText) ? 100 : 70;
@@ -67,20 +66,54 @@ Responde SOLO JSON válido.`;
 }
 
 /**
- * Webhook genérico: procesa updates de Telegram.
- * Este método lo invoca tu wrapper de Vercel (`api/telegram.js`).
+ * Webhook genérico: puede recibir (req, res) o un body crudo.
+ * - Si recibe (req, res): escribe la respuesta HTTP aquí mismo (Vercel/Next API).
+ * - Si recibe solo (body): devuelve { ok: true } (modo programático).
  */
-export default async function genericWebhook(body: any): Promise<{ ok: true }> {
+export default async function genericWebhook(
+  reqOrBody: any,
+  res?: {
+    status?: (code: number) => any;
+    setHeader?: (k: string, v: string) => void;
+    end?: (body?: any) => void;
+    statusCode?: number;
+  }
+): Promise<{ ok: true } | void> {
   await migrateOnce();
 
-  const repo = new TursoRepo(db); // <-- requiere 1 argumento
+  const repo = new TursoRepo(db);
   const token = process.env.TG_TOKEN || "";
   if (!token) throw new Error("TG_TOKEN is required");
-
   const notifier = new TelegramHttpNotifier(token);
-  const service = new DailyService(repo, notifier, evaluate); // <-- 3 args
-  const adapter = new TelegramAdapter(repo, service);         // <-- 2 args
+  const service = new DailyService(repo, notifier, evaluate);
+  const adapter = new TelegramAdapter(repo, service);
 
-  await adapter.handleUpdate(body);
+  // Extrae el body: si nos pasaron (req,res), usa req.body; si no, trata el primer arg como body.
+  const body = (reqOrBody && typeof reqOrBody === "object" && "body" in reqOrBody)
+    ? (reqOrBody as any).body
+    : reqOrBody;
+
+  try {
+    await adapter.handleUpdate(body ?? {});
+  } catch (err) {
+    // Telegram prefiere 200 aunque haya errores internos.
+    if (res) {
+      try {
+        res.status?.(200);
+        res.setHeader?.("Content-Type", "text/plain; charset=utf-8");
+        res.end?.("OK");
+      } catch {}
+      return;
+    }
+    // Modo programático: no explotes
+    return { ok: true };
+  }
+
+  if (res) {
+    res.status?.(200);
+    res.setHeader?.("Content-Type", "application/json; charset=utf-8");
+    res.end?.('{"ok":true}');
+    return;
+  }
   return { ok: true };
 }

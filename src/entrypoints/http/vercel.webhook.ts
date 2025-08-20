@@ -1,6 +1,6 @@
 export const config = { runtime: 'nodejs' } as const;
 
-import { genericWebhook } from "./generic.webhook";
+import  genericWebhook  from "./generic.webhook";
 
 export default async function handler(req: any, res: any) {
   // Seguridad Telegram: X-Telegram-Bot-Api-Secret-Token
