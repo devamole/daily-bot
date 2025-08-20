@@ -1,39 +1,60 @@
+import type { RepoPort } from "../../../core/ports/RepoPort";
 import { DailyService } from "../../../core/daily/DailyService";
-import { NormalizedUpdate } from "../../../core/types/NormalizedUpdate";
 
-type TgUser = { id: number; is_bot?: boolean; first_name?: string; language_code?: string };
-type TgChat = { id: number; type: string };
-type TgMessage = { message_id: number; from: TgUser; chat: TgChat; date: number; text?: string };
-type TgUpdate = { update_id: number; message?: TgMessage };
-
+/**
+ * Adapter de Telegram:
+ * - Normaliza el update de Telegram.
+ * - Infere el tipo de mensaje ('morning' | 'update' | 'chat') en base al estado diario.
+ * - Llama a DailyService.handle(msg, ymd).
+ */
 export class TelegramAdapter {
-  constructor(private readonly service: DailyService) {}
+  constructor(
+    private readonly repo: RepoPort,
+    private readonly service: DailyService
+  ) {}
 
-  async handleUpdate(update: TgUpdate): Promise<void> {
-    const msg = update?.message;
-    if (!msg || !msg.from || !msg.chat) return;
+  async handleUpdate(update: any): Promise<void> {
+    const msg = update?.message ?? update?.edited_message;
+    if (!msg) return;
 
-    const text = msg.text ?? "";
-    const isStart = text.startsWith("/start");
+    const user_id = String(msg.from?.id ?? "");
+    const chat_id = String(msg.chat?.id ?? "");
+    const text = String(msg.text ?? "");
+    const ts = Number(msg.date ?? Math.floor(Date.now() / 1000));
+    if (!user_id || !chat_id) return;
 
-    // Evita 'as const' en condicionales; tipa explícitamente
-    const kind: NormalizedUpdate["type"] = isStart ? "command" : "message";
+    // yyyy-mm-dd en UTC (si quieres TZ real del user, consulta repo antes)
+    const ymd = new Date(ts * 1000).toISOString().slice(0, 10);
 
-    const norm: NormalizedUpdate = {
-      provider: "telegram",
-      event_id: String(update.update_id),
-      ts: Number(msg.date) || Math.floor(Date.now() / 1000),
-      user: { id: String(msg.from.id) },
-      chat: { id: String(msg.chat.id) },
-      type: kind,
-      text
-    };
+    let type: "morning" | "update" | "chat" = "chat";
 
-    // Solo incluye 'command' cuando aplica (exactOptionalPropertyTypes)
-    if (isStart) {
-      norm.command = "start";
+    if (text.trim() === "/start") {
+      type = "morning";
+    } else {
+      // Inferir en base al estado actual del día:
+      const daily = await this.repo.getDailyByDate(user_id, ymd);
+      if (!daily || daily.state === "pending_morning") {
+        type = "morning";
+      } else if (daily.state === "pending_update" || daily.state === "needs_followup") {
+        type = "update";
+      } else {
+        type = "chat";
+      }
     }
+    const rawMsgId = msg.message_id;
 
-    await this.service.handle(norm);
+    await this.service.handle(
+      {
+        user_id,
+        chat_id,
+        text,
+        ts,
+        type,
+         ...(rawMsgId != null ? { message_id: Number(rawMsgId) } : {})
+      },
+      ymd
+    );
   }
 }
+
+export default TelegramAdapter;

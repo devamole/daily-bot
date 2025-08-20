@@ -1,57 +1,29 @@
-export const config = { runtime: "nodejs" } as const;
-
+// src/entrypoints/cron/dispatcher.ts
 import { migrateOnce } from "../../db/migrate";
+import { db } from "../../db/db";
 import { TursoRepo } from "../../adapters/repo/TursoRepo";
-import { TelegramNotifier } from "../../adapters/channel/telegram/TelegramNotifier";
+import { TelegramHttpNotifier } from "../../adapters/notifier/TelegramHttpNotifier";
 import { CronService } from "../../cron/cronService";
 
-const repo = new TursoRepo();
-const notifier = new TelegramNotifier(process.env.TELEGRAM_TOKEN || "");
-const cron = new CronService(repo, notifier, {
-  morningHour: 8,
-  eveningHour: 18,
-  windowMinutes: 10,
-});
-
-function readAuthorizationHeader(req: any): string | null {
-  const hObj =
-    (req?.headers?.authorization as string | undefined) ??
-    (req?.headers?.Authorization as string | undefined);
-  if (typeof hObj === "string") return hObj;
-
-  try {
-    const hGet =
-      req?.headers?.get?.("authorization") ??
-      req?.headers?.get?.("Authorization");
-    if (typeof hGet === "string") return hGet;
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-function isAuthorized(req: any): boolean {
-  const expected = (process.env.CRON_SECRET ?? "").trim();
-  if (!expected) {
-    // Permite, solo con fines de desarrollo
-    return true;
-  }
-  const auth = readAuthorizationHeader(req);
-  if (!auth) return false;
-  const [scheme, token] = auth.split(" ");
-  return scheme === "Bearer" && token === expected;
-}
-
-export default async function handler(req: any, res: any) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    return res.status(405).end("Method Not Allowed");
-  }
-
-  if (!isAuthorized(req)) {
-    return res.status(401).end("Unauthorized");
-  }
-
+/**
+ * Ejecuta un tick del cron.
+ * Este entrypoint es invocado por tu endpoint /api/cron.dispatcher ó por GH Actions.
+ */
+export default async function dispatcher(): Promise<{ morning: number; evening: number }> {
   await migrateOnce();
-  const result = await cron.tick();
-  res.status(200).json({ ok: true, result });
+
+  const repo = new TursoRepo(db); // <-- requiere 1 argumento
+  const token = process.env.TG_TOKEN || "";
+  if (!token) throw new Error("TG_TOKEN is required");
+  const notifier = new TelegramHttpNotifier(token);
+
+  const cron = new CronService(repo, notifier, {
+    morningHour: 8,
+    morningMinute: 0,
+    eveningHour: 18,
+    eveningMinute: 0,
+    windowMinutes: Number(process.env.CRON_WINDOW_MIN || 10),
+  });
+
+  return await cron.tick();
 }
