@@ -1,23 +1,12 @@
-export type DailyState =
-  | "pending_morning"
-  | "pending_update"
-  | "needs_followup"
-  | "done"
-  | "expired";
+import type { ReasonCode } from "../analysis/reasons";
+import type { TaskComplexity } from "../analysis/workload";
 
-export interface UserRow {
-  user_id: string;
-  chat_id: string;
-  tz: string;
-  provider: string;
-  provider_user_id: string;
-  created_at?: number;
-}
+export type DailyState = "pending_morning" | "pending_update" | "needs_followup" | "done" | "expired";
 
-export interface DailyRow {
+export type DailyRow = {
   id: number;
   user_id: string;
-  date: string; // YYYY-MM-DD local del usuario
+  date: string;
   state: DailyState;
   score?: number | null;
   eval_model?: string | null;
@@ -25,41 +14,48 @@ export interface DailyRow {
   eval_rationale?: string | null;
   morning_prompt_at?: number | null;
   evening_prompt_at?: number | null;
-  created_at?: number;
-  updated_at?: number;
-}
+  first_morning_at?: number | null;
+  first_update_at?: number | null;
+  closed_at?: number | null;
+  workload_points?: number | null;
+  workload_level?: "low" | "normal" | "high" | null;
+};
 
-export interface MessageRow {
-  id?: number;
-  daily_id?: number | null;
-  chat_id: string;
-  user_id: string;
-  message_id?: number | null;
-  update_id?: string | null;
-  provider?: string | null;
-  text: string;
-  timestamp: number; // epoch seconds
-  type: "morning" | "update" | "followup" | "chat" | "system";
-  created_at?: number;
-}
+export interface RepoPort {
+  getAllUsers(): Promise<Array<{ user_id: string; tz: string }>>;
 
-export abstract class RepoPort {
-  abstract upsertUser(u: Pick<UserRow, "user_id" | "chat_id" | "tz" | "provider" | "provider_user_id">): Promise<void>;
-  abstract getUser(user_id: string): Promise<UserRow | null>;
+  getDailyByDate(userId: string, ymd: string): Promise<DailyRow | null>;
+  createDaily(userId: string, ymd: string, state: DailyState): Promise<number>;
+  setDailyState(dailyId: number, state: DailyState): Promise<void>;
 
-  abstract getAllUsers(): Promise<UserRow[]>;
-  abstract getDailyByDate(user_id: string, date: string): Promise<DailyRow | null>;
-  abstract getLastDaily(user_id: string): Promise<DailyRow | null>;
-  abstract createDaily(user_id: string, date: string, state: DailyState, opts?: { overwriteToday?: boolean }): Promise<number>;
-  abstract setDailyState(dailyId: number, state: DailyState, patch?: Partial<DailyRow>): Promise<void>;
+  claimMorningPrompt(dailyId: number, epoch: number): Promise<boolean>;
+  claimEveningPrompt(dailyId: number, epoch: number): Promise<boolean>;
 
-  abstract insertMessage(row: Omit<MessageRow, "id">): Promise<void>;
+  patchDaily(
+    dailyId: number,
+    patch: Partial<Pick<
+      DailyRow,
+      "first_morning_at" | "first_update_at" | "closed_at" |
+      "workload_points" | "workload_level" |
+      "score" | "eval_model" | "eval_version" | "eval_rationale"
+    >>
+  ): Promise<void>;
 
-  abstract getMorningTextByDailyId(dailyId: number): Promise<string>;
-  abstract getFirstUpdateTextByDailyId(dailyId: number): Promise<string>;
+  insertTasks(
+    dailyId: number,
+    userId: string,
+    tasks: Array<{ pos: number; text: string; est_complexity: TaskComplexity; est_points: number; source: "heuristic" | "llm" }>
+  ): Promise<void>;
 
-  abstract claimMorningPrompt(dailyId: number, ts: number): Promise<boolean>;
-  abstract claimEveningPrompt(dailyId: number, ts: number): Promise<boolean>;
-
-  abstract hasEvent(provider: string, event_id: string): Promise<boolean>;
+  upsertReasons(
+    dailyId: number,
+    reasons: Array<{
+      code: ReasonCode | "other" | string;
+      confidence: number;
+      source: "heuristic" | "llm" | "manual";
+      raw?: string | null;
+      message_id?: number | null;
+      model_version?: string | null;
+    }>
+  ): Promise<void>;
 }
