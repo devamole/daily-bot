@@ -71,6 +71,7 @@ export class CronService {
     const debugMode = (process.env.CRON_DEBUG_FORCE ?? "").toLowerCase().trim();
     if (debugMode === "morning" || debugMode === "evening" || debugMode === "both") {
       const users = await this.repo.getAllUsers();
+ 
       if (users.length === 0) return { morning: 0, evening: 0 };
 
       const onlyUser = (process.env.CRON_DEBUG_USER ?? "").trim();
@@ -100,7 +101,10 @@ export class CronService {
     // MODO NORMAL (producción)
     // =======================
     const users = await this.repo.getAllUsers();
-    if (users.length === 0) return { morning: 0, evening: 0 };
+    if (users.length === 0) { 
+      console.log("No hay usuarios registrados para cron.");
+    return ( { morning: 0, evening: 0 })
+  };
 
     for (const u of users) {
       const tz = u.tz || "America/Bogota";
