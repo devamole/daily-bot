@@ -23,6 +23,7 @@ export default async function dispatcher(): Promise<{ morning: number; evening: 
     eveningHour: 18,
     eveningMinute: 0,
     windowMinutes: Number(process.env.CRON_WINDOW_MIN || 10),
+    repeatMorningEveryMinutes: 5
   });
 
   return await cron.tick();

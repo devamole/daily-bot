@@ -15,12 +15,21 @@ export type CronOptions = {
   eveningMinute?: number;
   /** Ventana en minutos para considerar que “estamos en la franja”. Default: 10 */
   windowMinutes?: number;
+
+  /**
+   * (Temporal) Re-enviar morning cada N minutos mientras el daily siga en 'pending_morning'
+   * y estemos dentro de la ventana de la mañana. No afecta a la tarde.
+   * Ej: 5 → reenvío cada 5 min.
+   */
+  repeatMorningEveryMinutes?: number;
 };
 
 /**
  * Servicio de cron:
  * - Modo normal: envía mensajes en ventanas locales 08:00/18:00 por usuario (idempotente con locks).
  * - Modo debug (CRON_DEBUG_FORCE): envía cada 5 min sin bloquearse por locks ni ventanas.
+ * - Si 'repeatMorningEveryMinutes' > 0: dentro de la ventana de mañana, re-envía cada N minutos
+ *   mientras el daily esté en 'pending_morning' (sin cambiar esquema).
  */
 export class CronService {
   constructor(
@@ -39,6 +48,14 @@ export class CronService {
     const EVENING_H = this.opts.eveningHour ?? 18;
     const EVENING_M = this.opts.eveningMinute ?? 0;
     const WINDOW = this.opts.windowMinutes ?? 10;
+
+    // Activación opcional de reenvíos en morning (flujo normal)
+    const repeatMorningEvery =
+      typeof this.opts.repeatMorningEveryMinutes === "number" &&
+      isFinite(this.opts.repeatMorningEveryMinutes) &&
+      this.opts.repeatMorningEveryMinutes > 0
+        ? Math.floor(this.opts.repeatMorningEveryMinutes)
+        : undefined;
 
     let morningCount = 0;
     let eveningCount = 0;
@@ -98,10 +115,34 @@ export class CronService {
             return { id, user_id: u.user_id, date: ymd, state: "pending_morning" as const };
           })());
 
-        // Lock atómico: solo el primero marcará morning_prompt_at
-        if (await this.repo.claimMorningPrompt(daily.id, epoch)) {
-          await safeSend(this.notifier, u.user_id, messages.morning);
-          morningCount++;
+        if (daily.state === "pending_morning") {
+          if (repeatMorningEvery) {
+            // Camino A (preferido): usa método del repo si existe (persistente y espaciado por N min)
+            const maybeRefresh = (this.repo as any).maybeRefreshMorningPrompt as
+              | ((dailyId: number, epoch: number, minIntervalSec: number) => Promise<boolean>)
+              | undefined;
+
+            if (typeof maybeRefresh === "function") {
+              const ok = await maybeRefresh(daily.id, epoch, repeatMorningEvery * 60);
+              if (ok) {
+                await safeSend(this.notifier, u.user_id, messages.morning);
+                morningCount++;
+              }
+            } else {
+              // Camino B (fallback sin tocar repo): filtra por minuto; no persiste último envío.
+              // Enviará a los minutos 0,5,10,... dentro de la ventana.
+              if ((hour * 60 + minute) % repeatMorningEvery === 0) {
+                await safeSend(this.notifier, u.user_id, messages.morning);
+                morningCount++;
+              }
+            }
+          } else {
+            // One-shot tradicional (idempotente con lock DB)
+            if (await this.repo.claimMorningPrompt(daily.id, epoch)) {
+              await safeSend(this.notifier, u.user_id, messages.morning);
+              morningCount++;
+            }
+          }
         }
       }
 
