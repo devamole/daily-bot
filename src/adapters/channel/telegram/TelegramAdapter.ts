@@ -14,6 +14,7 @@ export class TelegramAdapter {
   ) {}
 
   async handleUpdate(update: any): Promise<void> {
+    console.log('Telegram update:', JSON.stringify(update).slice(0, 200)); // loguea solo los primeros 200 chars
     const msg = update?.message ?? update?.edited_message;
     if (!msg) return;
 
