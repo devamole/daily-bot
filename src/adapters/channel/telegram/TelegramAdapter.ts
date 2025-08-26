@@ -43,7 +43,7 @@ export class TelegramAdapter {
       }
     }
     const rawMsgId = msg.message_id;
-
+    console.log(`Inferred message type: ${type} (daily state: ${  text})`)
     await this.service.handle(
       {
         user_id,
