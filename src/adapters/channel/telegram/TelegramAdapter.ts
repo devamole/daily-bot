@@ -14,8 +14,8 @@ export class TelegramAdapter {
   ) {}
 
   async handleUpdate(update: any): Promise<void> {
-    console.log('Telegram update:', JSON.stringify(update).slice(0, 200)); // loguea solo los primeros 200 chars
     const msg = update?.message ?? update?.edited_message;
+    console.log('Telegram update:', msg); // loguea solo los primeros 200 chars
     if (!msg) return;
 
     const user_id = String(msg.from?.id ?? "");
@@ -23,7 +23,7 @@ export class TelegramAdapter {
     const text = String(msg.text ?? "");
     const ts = Number(msg.date ?? Math.floor(Date.now() / 1000));
     if (!user_id || !chat_id) return;
-
+    console.log(`Telegram message from user ${user_id} in chat ${chat_id}:`, text.slice(0, 200));
     // yyyy-mm-dd en UTC (si quieres TZ real del user, consulta repo antes)
     const ymd = new Date(ts * 1000).toISOString().slice(0, 10);
 
