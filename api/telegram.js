@@ -13,6 +13,7 @@ function pickHandler(mod) {
 
 // Wrapper universal: carga el handler (ESM o CJS) *cuando Vercel lo llama*
 module.exports = async function handler(req, res) {
+  console.log('HTTP', req.method, req.url);
   const mod = await import('../dist/entrypoints/http/vercel.webhook.js');
   const fn = pickHandler(mod);
   return fn(req, res);
