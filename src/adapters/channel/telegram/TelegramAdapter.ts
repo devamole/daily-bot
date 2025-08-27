@@ -23,7 +23,6 @@ export class TelegramAdapter {
     const text = String(msg.text ?? "");
     const ts = Number(msg.date ?? Math.floor(Date.now() / 1000));
     if (!user_id || !chat_id) return;
-    console.log(`Telegram message from user ${user_id} in chat ${chat_id}:`, text.slice(0, 200));
     // yyyy-mm-dd en UTC (si quieres TZ real del user, consulta repo antes)
     const ymd = new Date(ts * 1000).toISOString().slice(0, 10);
 
@@ -43,7 +42,6 @@ export class TelegramAdapter {
       }
     }
     const rawMsgId = msg.message_id;
-    console.log(`Inferred message type: ${type} (daily state: ${  text})`)
     await this.service.handle(
       {
         user_id,
