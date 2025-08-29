@@ -54,7 +54,7 @@ export class TelegramAdapter {
           text.slice(e.offset, e.offset + e.length) === "/start"
       );
     const isStart = hasStartEntity || text === "/start";
-
+      console.log(`[TelegramAdapter] Received message from user ${user_id} in chat ${chat_id} at ${ts} (tz: ${tz}, ymd: ${ymd}): "${text}"${isStart ? " [detected as /start]" : ""}`);
     if (isStart) {
       // a) expira dailies abiertos de días anteriores si tu repo lo soporta (opcional)
       const expireOpenBefore = (this.repo as any).expireOpenBefore as
@@ -70,12 +70,14 @@ export class TelegramAdapter {
 
       // b) crea o resetea el daily de HOY a 'pending_morning'
       const existing = await this.repo.getDailyByDate(user_id, ymd);
+      console.log(`[TelegramAdapter] Existing daily for today: ${existing ? JSON.stringify(existing) : "none"}`);
       if (!existing) {
         await this.repo.createDaily(user_id, ymd, "pending_morning");
       } else if (existing.state !== "pending_morning") {
         const resetDailyToMorning = (this.repo as any).resetDailyToMorning as
           | ((dailyId: number) => Promise<void>)
           | undefined;
+        console.log(`[TelegramAdapter] Resetting daily  ${JSON.stringify(resetDailyToMorning)}`);
         const setDailyState = (this.repo as any).setDailyState as
           | ((dailyId: number, state: string) => Promise<void>)
           | undefined;
