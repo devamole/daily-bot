@@ -36,6 +36,21 @@ export class TelegramAdapter {
     const tz = process.env.DEFAULT_TZ || "America/Bogota";
     const ymd = localDateStr(ts, tz);
     console.log(`[TelegramAdapter] 3 Message from user ${user_id} in chat ${chat_id} at ${ts} (${ymd} in ${tz}): "${text}"`);
+    console.log({
+      user_id, chat_id, ts, text, tz, 
+    })
+
+    const hasStartEntity =
+      Array.isArray(msg.entities) &&
+      msg.entities.some(
+        (e) =>
+          e.type === "bot_command" &&
+          e.offset === 0 &&
+          text.slice(e.offset, e.offset + e.length) === "/start"
+      );
+    const isStart = hasStartEntity || text === "/start"
+
+    console.log(`[TelegramAdapter] 4 Detected /start: ${isStart} (hasStartEntity: ${hasStartEntity})`);
     // 1) upsert del usuario SIEMPRE al primer contacto
     await this.repo.upsertUser({
       user_id,
@@ -46,15 +61,8 @@ export class TelegramAdapter {
     });
     console.log(`[TelegramAdapter] 4 Upserted user ${user_id} with chat ${chat_id} and tz ${tz}`);
     // 2) detectar /start de forma robusta (con entities y backup por texto)
-    const hasStartEntity =
-      Array.isArray(msg.entities) &&
-      msg.entities.some(
-        (e) =>
-          e.type === "bot_command" &&
-          e.offset === 0 &&
-          text.slice(e.offset, e.offset + e.length) === "/start"
-      );
-    const isStart = hasStartEntity || text === "/start";
+    
+    
     console.log(`[TelegramAdapter] 5 Received message from user ${user_id} in chat ${chat_id} at ${ts} (tz: ${tz}, ymd: ${ymd}): "${text}"${isStart ? " [detected as /start]" : ""}`);
     if (isStart) {
       // a) expira dailies abiertos de días anteriores si tu repo lo soporta (opcional)
