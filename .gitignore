@@ -5,3 +5,5 @@ dist
 build
 coverage
 .env
+.vercel
+.env*.local

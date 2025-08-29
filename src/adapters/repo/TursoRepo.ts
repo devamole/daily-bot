@@ -5,33 +5,61 @@ import type { TaskComplexity } from "../../core/analysis/workload";
 export class TursoRepo implements RepoPort {
   constructor(private readonly db: Client) {}
 
-  async upsertUser(input: {
-    user_id: string;
-    chat_id: string;
-    tz: string;
-    provider: string;
-    provider_user_id: string;
-  }): Promise<void> {
-    await this.db.execute({
+  // TursoRepo.ts
+async upsertUser(input: {
+  user_id: string;
+  chat_id: string;
+  tz: string;
+  provider: string;
+  provider_user_id: string;
+}): Promise<void> {
+  const tx = await this.db.transaction("write");
+  let ok = false;
+  try {
+    // 1) Intento de UPDATE (idempotente y barato si ya existe)
+    const upd = await tx.execute({
       sql: `
-        INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
-        ON CONFLICT(user_id) DO UPDATE SET
-          chat_id = excluded.chat_id,
-          tz = excluded.tz,
-          provider = excluded.provider,
-          provider_user_id = excluded.provider_user_id,
-          updated_at = unixepoch()
+        UPDATE users
+           SET chat_id = ?,
+               tz = ?,
+               provider = ?,
+               provider_user_id = ?,
+               updated_at = unixepoch()
+         WHERE user_id = ?
       `,
       args: [
-        input.user_id,
         input.chat_id,
         input.tz,
         input.provider,
         input.provider_user_id,
+        input.user_id,
       ],
     });
+
+    // 2) Si no existía, INSERT
+    if ((upd.rowsAffected ?? 0) === 0) {
+      await tx.execute({
+        sql: `
+          INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+        `,
+        args: [
+          input.user_id,
+          input.chat_id,
+          input.tz,
+          input.provider,
+          input.provider_user_id,
+        ],
+      });
+    }
+
+    await tx.commit();
+    ok = true;
+  } finally {
+    if (!ok) await tx.rollback();
   }
+}
+
 
   async getUserById(userId: string): Promise<{
     user_id: string;
@@ -63,7 +91,7 @@ export class TursoRepo implements RepoPort {
       updated_at: Number(r.updated_at),
     };
   }
-  
+
   async getAllUsers(): Promise<Array<{ user_id: string; tz: string }>> {
     const { rows } = await this.db.execute(`SELECT user_id, tz FROM users`);
     return rows.map(r => ({ user_id: String((r as any).user_id), tz: String((r as any).tz) }));

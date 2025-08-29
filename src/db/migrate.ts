@@ -11,7 +11,7 @@ export async function migrateOnce(): Promise<void> {
 
 // Tipo mínimo compatible con Client y Transaction de @libsql/client
 type Execable = {
-  execute: (sql: string, args?: unknown[]) => Promise<any>; // ResultSet u otros
+  execute: (sql: string, args?: unknown[]) => Promise<any>;
   commit?: () => Promise<void>;
   rollback?: () => Promise<void>;
 };
@@ -20,7 +20,10 @@ async function ensureSchema(): Promise<void> {
   const tx = (await db.transaction("write")) as Execable;
   let committed = false;
   try {
-    // --- Tablas base (idempotentes) ---
+    // Recomendado en SQLite/libsql cuando usas FKs
+    await tx.execute(`PRAGMA foreign_keys=ON`);
+
+    // --- Tabla users (creación idempotente) ---
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS users (
         user_id           TEXT PRIMARY KEY,
@@ -29,10 +32,14 @@ async function ensureSchema(): Promise<void> {
         provider          TEXT NOT NULL DEFAULT 'telegram',
         provider_user_id  TEXT,
         created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
-        update_at         INTEGER NOT NULL DEFAULT (unixepoch())
+        updated_at        INTEGER NOT NULL DEFAULT (unixepoch())
       )
     `);
 
+    // --- Corrección de esquema legacy: update_at -> updated_at ---
+    await ensureUpdatedAtOnUsers(tx);
+
+    // --- Tabla daily_status ---
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS daily_status (
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +59,7 @@ async function ensureSchema(): Promise<void> {
       )
     `);
 
+    // --- Tabla messages ---
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS messages (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +93,7 @@ async function ensureSchema(): Promise<void> {
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_daily_closed_at ON daily_status(closed_at)`);
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_daily_workload ON daily_status(workload_level)`);
 
-    // --- Nueva: daily_tasks ---
+    // --- Tabla daily_tasks ---
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS daily_tasks (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +111,7 @@ async function ensureSchema(): Promise<void> {
     await tx.execute(`CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_daily_pos ON daily_tasks(daily_id, pos)`);
     await tx.execute(`CREATE INDEX IF NOT EXISTS ix_tasks_daily ON daily_tasks(daily_id)`);
 
-    // --- Nueva: daily_reasons (multi-etiqueta) ---
+    // --- Tabla daily_reasons ---
     await tx.execute(`
       CREATE TABLE IF NOT EXISTS daily_reasons (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,18 +136,39 @@ async function ensureSchema(): Promise<void> {
   }
 }
 
+/** Si la tabla users tiene 'update_at' pero no 'updated_at', añade 'updated_at' y copia datos. */
+async function ensureUpdatedAtOnUsers(ex: Execable): Promise<void> {
+  const cols = await getTableColumns(ex, "users");
+  const hasUpdatedAt = cols.includes("updated_at");
+  const hasLegacyUpdateAt = cols.includes("update_at"); // typo
+
+  if (!hasUpdatedAt) {
+    // Añade updated_at con default unixepoch()
+    await ex.execute(`ALTER TABLE users ADD COLUMN updated_at INTEGER NOT NULL DEFAULT (unixepoch())`);
+    // Si existe la legacy, copia su valor; si no, deja created_at como base
+    if (hasLegacyUpdateAt) {
+      await ex.execute(`UPDATE users SET updated_at = COALESCE(update_at, created_at) WHERE updated_at IS NULL`);
+      // (Opcional) No intentamos eliminar 'update_at' por compatibilidad.
+    } else {
+      await ex.execute(`UPDATE users SET updated_at = COALESCE(updated_at, created_at)`);
+    }
+  }
+}
+
 async function addColumnIfMissing(
   ex: Execable,
   table: string,
   column: string,
   type: string
 ) {
-  // Consulta PRAGMA dentro de la MISMA transacción/conn
-  const res = await ex.execute(`PRAGMA table_info(${table})`);
-  // En @libsql/client, res.rows es un array de objetos con 'name'
-  const rows = (res && (res as any).rows) ? (res as any).rows : [];
-  const exists = rows.some((r: any) => String(r.name) === column);
-  if (!exists) {
+  const cols = await getTableColumns(ex, table);
+  if (!cols.includes(column)) {
     await ex.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
+}
+
+async function getTableColumns(ex: Execable, table: string): Promise<string[]> {
+  const res = await ex.execute(`PRAGMA table_info(${table})`);
+  const rows = (res && (res as any).rows) ? (res as any).rows : [];
+  return rows.map((r: any) => String(r.name));
 }
