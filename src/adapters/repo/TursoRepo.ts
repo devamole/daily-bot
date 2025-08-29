@@ -1,3 +1,4 @@
+// adapters/repo/TursoRepo.ts
 import type { Client } from "@libsql/client";
 import type { RepoPort, DailyRow, DailyState } from "../../core/ports/RepoPort";
 import type { TaskComplexity } from "../../core/analysis/workload";
@@ -6,60 +7,59 @@ export class TursoRepo implements RepoPort {
   constructor(private readonly db: Client) {}
 
   // TursoRepo.ts
-async upsertUser(input: {
-  user_id: string;
-  chat_id: string;
-  tz: string;
-  provider: string;
-  provider_user_id: string;
-}): Promise<void> {
-  const tx = await this.db.transaction("write");
-  let ok = false;
-  try {
-    // 1) Intento de UPDATE (idempotente y barato si ya existe)
-    const upd = await tx.execute({
-      sql: `
-        UPDATE users
-           SET chat_id = ?,
-               tz = ?,
-               provider = ?,
-               provider_user_id = ?,
-               updated_at = unixepoch()
-         WHERE user_id = ?
-      `,
-      args: [
-        input.chat_id,
-        input.tz,
-        input.provider,
-        input.provider_user_id,
-        input.user_id,
-      ],
-    });
-
-    // 2) Si no existía, INSERT
-    if ((upd.rowsAffected ?? 0) === 0) {
-      await tx.execute({
+  async upsertUser(input: {
+    user_id: string;
+    chat_id: string;
+    tz: string;
+    provider: string;
+    provider_user_id: string;
+  }): Promise<void> {
+    const tx = await this.db.transaction("write");
+    let ok = false;
+    try {
+      // 1) UPDATE
+      const upd = await tx.execute({
         sql: `
-          INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+          UPDATE users
+             SET chat_id = ?,
+                 tz = ?,
+                 provider = ?,
+                 provider_user_id = ?,
+                 updated_at = unixepoch()
+           WHERE user_id = ?
         `,
         args: [
-          input.user_id,
           input.chat_id,
           input.tz,
           input.provider,
           input.provider_user_id,
+          input.user_id,
         ],
       });
+
+      // 2) INSERT si no existía
+      if ((upd.rowsAffected ?? 0) === 0) {
+        await tx.execute({
+          sql: `
+            INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+          `,
+          args: [
+            input.user_id,
+            input.chat_id,
+            input.tz,
+            input.provider,
+            input.provider_user_id,
+          ],
+        });
+      }
+
+      await tx.commit();
+      ok = true;
+    } finally {
+      if (!ok) await tx.rollback();
     }
-
-    await tx.commit();
-    ok = true;
-  } finally {
-    if (!ok) await tx.rollback();
   }
-}
-
 
   async getUserById(userId: string): Promise<{
     user_id: string;
@@ -144,40 +144,31 @@ async upsertUser(input: {
     const args: any[] = [];
 
     if (patch.first_morning_at !== undefined) {
-      sets.push(`first_morning_at = COALESCE(first_morning_at, ?)`);
-      args.push(patch.first_morning_at);
+      sets.push(`first_morning_at = COALESCE(first_morning_at, ?)`); args.push(patch.first_morning_at);
     }
     if (patch.first_update_at !== undefined) {
-      sets.push(`first_update_at = COALESCE(first_update_at, ?)`);
-      args.push(patch.first_update_at);
+      sets.push(`first_update_at = COALESCE(first_update_at, ?)`);   args.push(patch.first_update_at);
     }
     if (patch.closed_at !== undefined) {
-      sets.push(`closed_at = COALESCE(closed_at, ?)`);
-      args.push(patch.closed_at);
+      sets.push(`closed_at = COALESCE(closed_at, ?)`);               args.push(patch.closed_at);
     }
     if (patch.workload_points !== undefined) {
-      sets.push(`workload_points = ?`);
-      args.push(patch.workload_points);
+      sets.push(`workload_points = ?`);                               args.push(patch.workload_points);
     }
     if (patch.workload_level !== undefined) {
-      sets.push(`workload_level = ?`);
-      args.push(patch.workload_level);
+      sets.push(`workload_level = ?`);                                args.push(patch.workload_level);
     }
     if (patch.score !== undefined) {
-      sets.push(`score = ?`);
-      args.push(patch.score);
+      sets.push(`score = ?`);                                         args.push(patch.score);
     }
     if (patch.eval_model !== undefined) {
-      sets.push(`eval_model = ?`);
-      args.push(patch.eval_model);
+      sets.push(`eval_model = ?`);                                    args.push(patch.eval_model);
     }
     if (patch.eval_version !== undefined) {
-      sets.push(`eval_version = ?`);
-      args.push(patch.eval_version);
+      sets.push(`eval_version = ?`);                                  args.push(patch.eval_version);
     }
     if (patch.eval_rationale !== undefined) {
-      sets.push(`eval_rationale = ?`);
-      args.push(patch.eval_rationale);
+      sets.push(`eval_rationale = ?`);                                args.push(patch.eval_rationale);
     }
 
     if (sets.length === 0) return;
@@ -197,7 +188,6 @@ async upsertUser(input: {
     const tx = await this.db.transaction("write");
     let ok = false;
     try {
-      // estrategia simple y determinista: delete + insert posicional
       await tx.execute({ sql: `DELETE FROM daily_tasks WHERE daily_id = ?`, args: [dailyId] });
 
       for (const t of tasks) {
@@ -256,5 +246,56 @@ async upsertUser(input: {
     } finally {
       if (!ok) await tx.rollback();
     }
+  }
+
+  // ===== NUEVO: mensajes / idempotencia / plan =====
+
+  async insertMessage(input: {
+    daily_id: number | null;
+    user_id: string;
+    chat_id: string;
+    provider: string;
+    text: string;
+    ts: number;
+    type: "morning" | "update" | "followup" | "chat" | "system";
+    message_id?: number;
+    update_id?: string;
+  }): Promise<number> {
+    const res = await this.db.execute({
+      sql: `
+        INSERT INTO messages (daily_id, chat_id, user_id, message_id, update_id, provider, text, timestamp, type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+      `,
+      args: [
+        input.daily_id,
+        input.chat_id,
+        input.user_id,
+        input.message_id ?? null,
+        input.update_id ?? null,
+        input.provider,
+        input.text,
+        input.ts,
+        input.type,
+      ],
+    });
+    return Number(res.lastInsertRowid);
+  }
+
+  async wasUpdateProcessed(provider: string, update_id: string): Promise<boolean> {
+    if (!update_id) return false;
+    const { rows } = await this.db.execute({
+      sql: `SELECT 1 FROM messages WHERE provider = ? AND update_id = ? LIMIT 1`,
+      args: [provider, update_id],
+    });
+    return !!(rows && rows.length > 0);
+  }
+
+  async getFirstMorningText(dailyId: number): Promise<string | null> {
+    const { rows } = await this.db.execute({
+      sql: `SELECT text FROM messages WHERE daily_id = ? AND type = 'morning' ORDER BY id ASC LIMIT 1`,
+      args: [dailyId],
+    });
+    const r = rows?.[0] as any;
+    return r?.text ? String(r.text) : null;
   }
 }

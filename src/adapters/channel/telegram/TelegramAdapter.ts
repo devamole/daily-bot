@@ -1,4 +1,4 @@
-// src/adapters/channel/telegram/TelegramAdapter.ts
+// adapters/channel/telegram/TelegramAdapter.ts
 import type { RepoPort } from "../../../core/ports/RepoPort";
 import type { NotifierPort } from "../../../core/ports/NotifierPort";
 import { DailyService } from "../../../core/daily/DailyService";
@@ -26,96 +26,62 @@ export class TelegramAdapter {
 
   async handleUpdate(update: TgUpdate): Promise<void> {
     const msg = update.message;
-    console.log("[TelegramAdapter] Received update:", JSON.stringify(update));
     if (!msg || !msg.from || !msg.chat) return;
-    console.log("[TelegramAdapter] 2 Processing message:", JSON.stringify(msg));
+
+    const provider = "telegram";
+    const update_id = String(update.update_id);
+
+    // Idempotencia: ¿ya procesado?
+    if (await this.repo.wasUpdateProcessed(provider, update_id)) {
+      return;
+    }
+
     const user_id = String(msg.from.id);
     const chat_id = String(msg.chat.id);
     const ts = Number(msg.date || Math.floor(Date.now() / 1000));
     const text = (msg.text ?? "").trim();
-    const tz = process.env.DEFAULT_TZ || "America/Bogota";
-    const ymd = localDateStr(ts, tz);
-    console.log(`[TelegramAdapter] 3 Message from user ${user_id} in chat ${chat_id} at ${ts} (${ymd} in ${tz}): "${text}"`);
-    console.log({
-      user_id, chat_id, ts, text, tz, 
-    })
 
-    const hasStartEntity =
-      Array.isArray(msg.entities) &&
-      msg.entities.some(
-        (e) =>
-          e.type === "bot_command" &&
-          e.offset === 0 &&
-          text.slice(e.offset, e.offset + e.length) === "/start"
-      );
-    const isStart = hasStartEntity || text === "/start"
-
-    console.log(`[TelegramAdapter] 4 Detected /start: ${isStart} (hasStartEntity: ${hasStartEntity})`);
-    // 1) upsert del usuario SIEMPRE al primer contacto
+    // Registrar/actualizar usuario (tz por defecto si no hay aún registro)
     await this.repo.upsertUser({
       user_id,
       chat_id,
-      tz,
-      provider: "telegram",
+      tz: process.env.DEFAULT_TZ || "America/Bogota",
+      provider,
       provider_user_id: user_id,
     });
-    console.log(`[TelegramAdapter] 4 Upserted user ${user_id} with chat ${chat_id} and tz ${tz}`);
-    // 2) detectar /start de forma robusta (con entities y backup por texto)
-    
-    
-    console.log(`[TelegramAdapter] 5 Received message from user ${user_id} in chat ${chat_id} at ${ts} (tz: ${tz}, ymd: ${ymd}): "${text}"${isStart ? " [detected as /start]" : ""}`);
-    if (isStart) {
-      // a) expira dailies abiertos de días anteriores si tu repo lo soporta (opcional)
-      const expireOpenBefore = (this.repo as any).expireOpenBefore as
-        | ((userId: string, ymd: string, nowEpoch: number) => Promise<number>)
-        | undefined;
-      if (typeof expireOpenBefore === "function") {
-        try {
-          await expireOpenBefore(user_id, ymd, ts);
-        } catch (e) {
-          console.warn("[TelegramAdapter] expireOpenBefore:", (e as Error).message);
-        }
-      }
 
-      // b) crea o resetea el daily de HOY a 'pending_morning'
-      const existing = await this.repo.getDailyByDate(user_id, ymd);
-      console.log(`[TelegramAdapter] Existing daily for today: ${existing ? JSON.stringify(existing) : "none"}`);
-      if (!existing) {
-        await this.repo.createDaily(user_id, ymd, "pending_morning");
-      } else if (existing.state !== "pending_morning") {
-        const resetDailyToMorning = (this.repo as any).resetDailyToMorning as
-          | ((dailyId: number) => Promise<void>)
-          | undefined;
-        console.log(`[TelegramAdapter] Resetting daily  ${JSON.stringify(resetDailyToMorning)}`);
-        const setDailyState = (this.repo as any).setDailyState as
-          | ((dailyId: number, state: string) => Promise<void>)
-          | undefined;
-        try {
-          if (typeof resetDailyToMorning === "function") {
-            await resetDailyToMorning(existing.id);
-          } else if (typeof setDailyState === "function") {
-            await setDailyState(existing.id, "pending_morning");
-          }
-        } catch (e) {
-          console.warn("[TelegramAdapter] resetDailyToMorning/setDailyState:", (e as Error).message);
-        }
-      }
+    // Usar tz guardada del usuario para el día lógico
+    const u = await this.repo.getUserById(user_id);
+    const tz = u?.tz || process.env.DEFAULT_TZ || "America/Bogota";
+    const ymd = localDateStr(ts, tz);
 
-      // c) envía prompt morning (no pasamos /start a DailyService)
-      await this.notifier.sendText(
-        user_id,
-        "👋 ¡Buen día! Recuerda tomar tu Daily ✨\n\n" +
-          "Aquí tienes un formato sencillo que puedes seguir:\n\n" +
-          "📌 Hoy me enfocaré en:\n" +
-          "1. Resolver el algoritmo \"Two Sum\".\n" +
-          "2. Aprender sobre \"Reactive Forms en Angular\".\n\n" +
-          "Recuerda: sé breve y específico para mantener el enfoque.\n" +
-          "¡Tú puedes con todo! 🌟🚀"
+    // Detectar /start (por entities o texto)
+    const hasStartEntity =
+      Array.isArray(msg.entities) &&
+      msg.entities.some(
+        e => e.type === "bot_command" && e.offset === 0 && text.slice(e.offset, e.offset + e.length) === "/start"
       );
-      return; // IMPORTANTE: no procesar /start como “morning”
+    const isStart = hasStartEntity || text === "/start";
+
+    if (isStart) {
+      await this.service.startCycle(user_id, chat_id, ymd, ts, provider);
+      // Persistimos el evento entrante (/start) como chat (auditoría + dedupe)
+      const daily = await this.repo.getDailyByDate(user_id, ymd);
+      await this.repo.insertMessage({
+        daily_id: daily ? daily.id : null,
+        user_id,
+        chat_id,
+        provider,
+        text,
+        ts,
+        type: "chat",
+        message_id: Number(msg.message_id),
+        update_id,
+      });
+      return;
     }
 
-    // 3) resto de mensajes: clasificar por estado actual del daily de HOY
+    // Clasificar por estado actual del daily
     const daily =
       (await this.repo.getDailyByDate(user_id, ymd)) ??
       ({
@@ -127,37 +93,25 @@ export class TelegramAdapter {
 
     let kind: "morning" | "update" | "followup" | "chat";
     switch (daily.state) {
-      case "pending_morning":
-        kind = "morning";
-        break;
-      case "pending_update":
-        kind = "update";
-        break;
-      case "needs_followup":
-        kind = "followup";
-        break;
-      default:
-        kind = "chat";
+      case "pending_morning":  kind = "morning";  break;
+      case "pending_update":   kind = "update";   break;
+      case "needs_followup":   kind = "followup"; break;
+      default:                 kind = "chat";
     }
 
-    const handlePayload: {
-      user_id: string;
-      chat_id: string;
-      text: string;
-      ts: number;
-      type: typeof kind;
-      message_id?: number;
-    } = {
-      user_id,
-      chat_id,
-      text,
-      ts,
-      type: kind,
-    };
-    const msgIdNum = Number(msg.message_id);
-    if (!isNaN(msgIdNum)) {
-      handlePayload.message_id = msgIdNum;
-    }
-    await this.service.handle(handlePayload, ymd);
+    await this.service.handle(
+      {
+        user_id,
+        chat_id,
+        text,
+        ts,
+        type: kind,
+        message_id: Number(msg.message_id),
+        update_id,
+        provider,
+        daily_id_hint: daily.id,
+      },
+      ymd
+    );
   }
 }

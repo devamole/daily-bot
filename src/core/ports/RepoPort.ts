@@ -1,3 +1,4 @@
+// core/ports/RepoPort.ts
 import type { ReasonCode } from "../analysis/reasons";
 import type { TaskComplexity } from "../analysis/workload";
 
@@ -26,9 +27,9 @@ export type UserRow = {
   chat_id: string;
   tz: string;
   provider: string;          // "telegram" | "slack" | "teams" | ...
-  provider_user_id: string;  
-  created_at: number;       
-  updated_at: number;        
+  provider_user_id: string;
+  created_at: number;
+  updated_at: number;
 };
 
 export type UpsertUserInput = {
@@ -54,9 +55,9 @@ export interface RepoPort {
     dailyId: number,
     patch: Partial<Pick<
       DailyRow,
-      "first_morning_at" | "first_update_at" | "closed_at" |
-      "workload_points" | "workload_level" |
-      "score" | "eval_model" | "eval_version" | "eval_rationale"
+      | "first_morning_at" | "first_update_at" | "closed_at"
+      | "workload_points" | "workload_level"
+      | "score" | "eval_model" | "eval_version" | "eval_rationale"
     >>
   ): Promise<void>;
 
@@ -77,4 +78,21 @@ export interface RepoPort {
       model_version?: string | null;
     }>
   ): Promise<void>;
+
+  // ==== NUEVO: mensajes / idempotencia / plan ====
+  insertMessage(input: {
+    daily_id: number | null;
+    user_id: string;
+    chat_id: string;
+    provider: string;
+    text: string;
+    ts: number; // epoch sec
+    type: "morning" | "update" | "followup" | "chat" | "system";
+    message_id?: number;
+    update_id?: string;
+  }): Promise<number>;
+
+  wasUpdateProcessed(provider: string, update_id: string): Promise<boolean>;
+
+  getFirstMorningText(dailyId: number): Promise<string | null>;
 }

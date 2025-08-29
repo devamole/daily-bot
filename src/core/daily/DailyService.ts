@@ -1,10 +1,15 @@
+// core/daily/DailyService.ts
 import type { RepoPort, DailyRow } from "../ports/RepoPort";
 import type { NotifierPort } from "../ports/NotifierPort";
 import { extractTasksHeuristic, classifyWorkload } from "../analysis/workload";
 import { tagReasonsHeuristic, REASONS_HEURISTIC_VERSION } from "../analysis/reasons";
 import { ReasonsClassifierLLM } from "../../adapters/llm/ReasonsClassifier";
+import { messages } from "./messages";
 
-type EvaluateFn = (planText: string, updateText: string) => Promise<{ score: number; rationale?: string; advice?: string; model?: string; version?: string }>;
+type EvaluateFn = (
+  planText: string,
+  updateText: string
+) => Promise<{ score: number; rationale?: string; advice?: string; model?: string; version?: string }>;
 
 export class DailyService {
   constructor(
@@ -13,42 +18,74 @@ export class DailyService {
     private readonly evaluate: EvaluateFn
   ) {}
 
-  // Procesa mensaje del usuario con tipo ya determinado: 'morning' | 'update' | 'followup' | 'chat'
+  // Onboarding /start centralizado en core
+  async startCycle(user_id: string, chat_id: string, ymd: string, ts: number, provider: string): Promise<void> {
+    const existing = await this.repo.getDailyByDate(user_id, ymd);
+    if (!existing) {
+      await this.repo.createDaily(user_id, ymd, "pending_morning");
+    } else if (existing.state !== "pending_morning") {
+      await this.repo.setDailyState(existing.id, "pending_morning");
+    }
+    const daily = await this.repo.getDailyByDate(user_id, ymd);
+    // Enviar prompt morning
+    await this.notifier.sendText(user_id, messages.morning);
+    // Persistir salida (system)
+    await this.repo.insertMessage({
+      daily_id: daily ? daily.id : null,
+      user_id,
+      chat_id,
+      provider,
+      text: messages.morning,
+      ts,
+      type: "system",
+    });
+  }
+
+  // Manejo del inbound
   async handle(
     msg: {
       user_id: string;
       chat_id: string;
       text: string;
-      ts: number;       // epoch seconds
+      ts: number;
       type: "morning" | "update" | "followup" | "chat";
       message_id?: number;
+      update_id?: string;
+      provider?: string;
+      daily_id_hint?: number;
     },
     todayYmd: string
   ): Promise<void> {
-    // asegura daily del día lógico
-    console.log("Handling message", msg)
-    let daily = (await this.repo.getDailyByDate(msg.user_id, todayYmd)) ?? await this.createDailyPendingMorning(msg.user_id, todayYmd);
-    console.log(`2. Found daily  ${JSON.stringify(daily)} with state ${daily.state} for user ${msg.user_id} on ${todayYmd}`);
+    const daily =
+      (await this.repo.getDailyByDate(msg.user_id, todayYmd)) ??
+      (await this.createDailyPendingMorning(msg.user_id, todayYmd));
+
+    // Persistir inbound SIEMPRE (auditoría / idempotencia)
+    await this.repo.insertMessage({
+      daily_id: daily.id,
+      user_id: msg.user_id,
+      chat_id: msg.chat_id,
+      provider: msg.provider ?? "telegram",
+      text: msg.text,
+      ts: msg.ts,
+      type: msg.type,
+      ...(msg.message_id !== undefined ? { message_id: msg.message_id } : {}),
+      ...(msg.update_id !== undefined ? { update_id: msg.update_id } : {}),
+    });
+
     if (msg.type === "morning") {
       await this.onMorningMessage(daily, msg);
       return;
     }
-
     if (msg.type === "update") {
-      console.log(`Processing update for daily id ${daily.id} (state: ${daily.state})`);
       await this.onUpdateMessage(daily, msg);
       return;
     }
-
     if (msg.type === "followup") {
-      // opcional: podrías reetiquetar razones aquí, pero no es necesario
+      // futuro: procesar followups explícitos si se desea
       return;
     }
-
-    if (msg.type === "chat") {
-      // chat libre: no toca estado
-      return;
-    }
+    // chat libre: ya quedó persistido; no cambiamos estado
   }
 
   private async createDailyPendingMorning(userId: string, ymd: string): Promise<DailyRow> {
@@ -56,40 +93,53 @@ export class DailyService {
     return { id, user_id: userId, date: ymd, state: "pending_morning" };
   }
 
-  private async onMorningMessage(daily: DailyRow, msg: { user_id: string; text: string; ts: number }) {
-    // marca primer plan si no estaba
+  private async onMorningMessage(
+    daily: DailyRow,
+    msg: { user_id: string; chat_id: string; text: string; ts: number }
+  ) {
     await this.repo.patchDaily(daily.id, { first_morning_at: msg.ts });
 
-    // extrae tareas y puntúa (heurística)
+    // Extraer tareas y puntuar
     const tasks = extractTasksHeuristic(msg.text);
     if (tasks.length) {
-      await this.repo.insertTasks(daily.id, msg.user_id, tasks.map(t => ({ ...t, source: "heuristic" })));
+      await this.repo.insertTasks(
+        daily.id,
+        msg.user_id,
+        tasks.map(t => ({ ...t, source: "heuristic" }))
+      );
       const totalPoints = tasks.reduce((a, t) => a + t.est_points, 0);
       const baseline = Number(process.env.BASELINE_POINTS_PER_DAY || 5);
-      const level = classifyWorkload(totalPoints, baseline);
+      const level = classifyWorkload(totalPoints, baseline); // "low" | "normal" | "high"
       await this.repo.patchDaily(daily.id, { workload_points: totalPoints, workload_level: level });
     }
 
-    // pasa a pending_update
+    // ACK
+    await this.notifier.sendText(msg.user_id, messages.ackMorning);
+    await this.repo.insertMessage({
+      daily_id: daily.id,
+      user_id: msg.user_id,
+      chat_id: msg.chat_id,
+      provider: "telegram",
+      text: messages.ackMorning,
+      ts: Math.floor(Date.now() / 1000),
+      type: "system",
+    });
+
     await this.repo.setDailyState(daily.id, "pending_update");
   }
 
   private async onUpdateMessage(
     daily: DailyRow,
-    msg: { user_id: string; text: string; ts: number; message_id?: number }
+    msg: { user_id: string; chat_id: string; text: string; ts: number; message_id?: number }
   ) {
     await this.repo.patchDaily(daily.id, { first_update_at: msg.ts });
 
-    // Recupera textos necesarios: plan y update. (Asumimos que el primer 'morning' del día fue persistido en messages.)
-    // Si ya llevas el plan en otra parte, injéctalo aquí. Para estabilidad, usa el último plan guardado para daily_id.
-    const planText = await this.getFirstMorningText(daily.id);
-    console.log(`3. Retrieved plan text: ${planText ? planText.slice(0, 100) : "null"}`);
+    const planText = await this.repo.getFirstMorningText(daily.id);
     const updateText = msg.text;
-    console.log(`4. Retrieved update text: ${updateText ? updateText.slice(0, 100) : "null"}`);
-    // Evalúa con LLM (el que ya usas)
+
     const res = await this.evaluate(planText ?? "", updateText);
     const score = Math.max(0, Math.min(100, Math.round(res.score)));
-    console.log(`5. Evaluation result: score=${score}, rationale=${res.rationale ? res.rationale.slice(0, 100) : "null"}`);
+
     await this.repo.patchDaily(daily.id, {
       score,
       eval_model: res.model ?? process.env.LLM_MODEL ?? "gemini-2.5-flash",
@@ -97,39 +147,44 @@ export class DailyService {
       eval_rationale: res.rationale ?? null,
     });
 
-    // Si no es 100, clasificamos razones (heurística + fallback LLM si hace falta)
     if (score < 100) {
+      // Razones + follow-up
       await this.labelReasons(daily.id, planText, updateText, msg.message_id ?? null);
+
+      await this.notifier.sendText(msg.user_id, messages.followup);
+      await this.repo.insertMessage({
+        daily_id: daily.id,
+        user_id: msg.user_id,
+        chat_id: msg.chat_id,
+        provider: "telegram",
+        text: messages.followup,
+        ts: Math.floor(Date.now() / 1000),
+        type: "system",
+      });
+
       await this.repo.setDailyState(daily.id, "needs_followup");
     } else {
-      // Completado: cerramos ciclo
+      // Felicitación y cierre
+      const congrats = messages.congratsPrefix + (res.advice ?? "");
+      await this.notifier.sendText(msg.user_id, congrats);
+      await this.repo.insertMessage({
+        daily_id: daily.id,
+        user_id: msg.user_id,
+        chat_id: msg.chat_id,
+        provider: "telegram",
+        text: congrats,
+        ts: Math.floor(Date.now() / 1000),
+        type: "system",
+      });
+
       const now = Math.floor(Date.now() / 1000);
       await this.repo.patchDaily(daily.id, { closed_at: now });
       await this.repo.setDailyState(daily.id, "done");
     }
   }
 
-  private async getFirstMorningText(dailyId: number): Promise<string | null> {
-    // obtener el primer mensaje tipo 'morning' del día (si lo persistes en messages)
-    // sustituye esta consulta por un método del repo si ya lo tienes centralizado
-    // Mantengo SQL aquí mínimo, pero idealmente RepoPort tendría getFirstMorningText(dailyId)
-    try {
-      // @ts-ignore acceso directo si tienes db en otra capa; si no, ignora y retorna null.
-      const { db } = await import("../../db/db");
-      const { rows } = await db.execute({
-        sql: `SELECT text FROM messages WHERE daily_id = ? AND type = 'morning' ORDER BY id ASC LIMIT 1`,
-        args: [dailyId],
-      });
-      return rows?.[0]?.text ? String((rows as any)[0].text) : null;
-    } catch {
-      return null;
-    }
-  }
-
   private async labelReasons(dailyId: number, planText: string | null, updateText: string, messageId: number | null) {
-    // Heurística multi-etiqueta
     const heur = tagReasonsHeuristic(updateText, { topK: 3, minConfidence: 0.45, debug: false });
-
     if (heur.length) {
       await this.repo.upsertReasons(
         dailyId,
@@ -144,7 +199,6 @@ export class DailyService {
       );
     }
 
-    // ¿Fallback LLM a UNA etiqueta?
     const FALLBACK_CONF = 0.6;
     const needsLLM =
       heur.length === 0 ||
@@ -155,14 +209,7 @@ export class DailyService {
       const cls = new ReasonsClassifierLLM(process.env.GEMINI_API_KEY, process.env.LLM_REASON_MODEL || "gemini-2.5-flash");
       const { code } = await cls.classify(planText, updateText, 2200);
       await this.repo.upsertReasons(dailyId, [
-        {
-          code,
-          confidence: 0.9,
-          source: "llm",
-          raw: null,
-          message_id: messageId ?? null,
-          model_version: process.env.LLM_REASON_MODEL || "gemini-2.5-flash",
-        },
+        { code, confidence: 0.9, source: "llm", raw: null, message_id: messageId ?? null, model_version: process.env.LLM_REASON_MODEL || "gemini-2.5-flash" },
       ]);
     }
   }
