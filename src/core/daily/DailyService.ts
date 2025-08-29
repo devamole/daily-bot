@@ -28,7 +28,7 @@ export class DailyService {
     // asegura daily del día lógico
     console.log("Handling message", msg)
     let daily = (await this.repo.getDailyByDate(msg.user_id, todayYmd)) ?? await this.createDailyPendingMorning(msg.user_id, todayYmd);
-    console.log(`2. Found daily  ${daily} with state ${daily.state} for user ${msg.user_id} on ${todayYmd}`);
+    console.log(`2. Found daily  ${JSON.stringify(daily)} with state ${daily.state} for user ${msg.user_id} on ${todayYmd}`);
     if (msg.type === "morning") {
       await this.onMorningMessage(daily, msg);
       return;
