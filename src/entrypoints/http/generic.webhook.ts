@@ -3,7 +3,7 @@ import { db } from "../../db/db";
 import { TursoRepo } from "../../adapters/repo/TursoRepo";
 import { TelegramHttpNotifier } from "../../adapters/notifier/TelegramHttpNotifier";
 import { DailyService } from "../../core/daily/DailyService";
-import TelegramAdapter from "../../adapters/channel/telegram/TelegramAdapter";
+import {TelegramAdapter} from "../../adapters/channel/telegram/TelegramAdapter";
 
 /** Evaluador con Gemini (JSON estricto) + fallback heurístico */
 async function evaluate(planText: string, updateText: string): Promise<{
@@ -86,7 +86,7 @@ export default async function genericWebhook(
   if (!token) throw new Error("TG_TOKEN is required");
   const notifier = new TelegramHttpNotifier(token);
   const service = new DailyService(repo, notifier, evaluate);
-  const adapter = new TelegramAdapter(repo, service);
+  const adapter = new TelegramAdapter(repo, notifier, service);
 
   // Extrae el body: si nos pasaron (req,res), usa req.body; si no, trata el primer arg como body.
   const body = (reqOrBody && typeof reqOrBody === "object" && "body" in reqOrBody)

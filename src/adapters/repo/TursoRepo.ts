@@ -5,6 +5,65 @@ import type { TaskComplexity } from "../../core/analysis/workload";
 export class TursoRepo implements RepoPort {
   constructor(private readonly db: Client) {}
 
+  async upsertUser(input: {
+    user_id: string;
+    chat_id: string;
+    tz: string;
+    provider: string;
+    provider_user_id: string;
+  }): Promise<void> {
+    await this.db.execute({
+      sql: `
+        INSERT INTO users (user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+        ON CONFLICT(user_id) DO UPDATE SET
+          chat_id = excluded.chat_id,
+          tz = excluded.tz,
+          provider = excluded.provider,
+          provider_user_id = excluded.provider_user_id,
+          updated_at = unixepoch()
+      `,
+      args: [
+        input.user_id,
+        input.chat_id,
+        input.tz,
+        input.provider,
+        input.provider_user_id,
+      ],
+    });
+  }
+
+  async getUserById(userId: string): Promise<{
+    user_id: string;
+    chat_id: string;
+    tz: string;
+    provider: string;
+    provider_user_id: string;
+    created_at: number;
+    updated_at: number;
+  } | null> {
+    const { rows } = await this.db.execute({
+      sql: `
+        SELECT user_id, chat_id, tz, provider, provider_user_id, created_at, updated_at
+        FROM users
+        WHERE user_id = ?
+        LIMIT 1
+      `,
+      args: [userId],
+    });
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0] as any;
+    return {
+      user_id: String(r.user_id),
+      chat_id: String(r.chat_id),
+      tz: String(r.tz),
+      provider: String(r.provider),
+      provider_user_id: String(r.provider_user_id),
+      created_at: Number(r.created_at),
+      updated_at: Number(r.updated_at),
+    };
+  }
+  
   async getAllUsers(): Promise<Array<{ user_id: string; tz: string }>> {
     const { rows } = await this.db.execute(`SELECT user_id, tz FROM users`);
     return rows.map(r => ({ user_id: String((r as any).user_id), tz: String((r as any).tz) }));

@@ -21,9 +21,28 @@ export type DailyRow = {
   workload_level?: "low" | "normal" | "high" | null;
 };
 
+export type UserRow = {
+  user_id: string;
+  chat_id: string;
+  tz: string;
+  provider: string;          // "telegram" | "slack" | "teams" | ...
+  provider_user_id: string;  
+  created_at: number;       
+  updated_at: number;        
+};
+
+export type UpsertUserInput = {
+  user_id: string;
+  chat_id: string;
+  tz: string;
+  provider: string;
+  provider_user_id: string;
+};
+
 export interface RepoPort {
   getAllUsers(): Promise<Array<{ user_id: string; tz: string }>>;
-
+  upsertUser(input: UpsertUserInput): Promise<void>;
+  getUserById(userId: string): Promise<UserRow | null>;
   getDailyByDate(userId: string, ymd: string): Promise<DailyRow | null>;
   createDaily(userId: string, ymd: string, state: DailyState): Promise<number>;
   setDailyState(dailyId: number, state: DailyState): Promise<void>;
