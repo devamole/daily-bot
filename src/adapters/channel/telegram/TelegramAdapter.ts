@@ -33,6 +33,7 @@ export class TelegramAdapter {
     } else {
       // Inferir en base al estado actual del día:
       const daily = await this.repo.getDailyByDate(user_id, ymd);
+      console.log(`1. Found daily  ${daily} with state ${daily?.state} for user ${user_id} on ${ymd}`);
       if (!daily || daily.state === "pending_morning") {
         type = "morning";
       } else if (daily.state === "pending_update" || daily.state === "needs_followup") {
