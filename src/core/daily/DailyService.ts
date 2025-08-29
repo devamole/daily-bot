@@ -83,11 +83,13 @@ export class DailyService {
     // Recupera textos necesarios: plan y update. (Asumimos que el primer 'morning' del día fue persistido en messages.)
     // Si ya llevas el plan en otra parte, injéctalo aquí. Para estabilidad, usa el último plan guardado para daily_id.
     const planText = await this.getFirstMorningText(daily.id);
+    console.log(`3. Retrieved plan text: ${planText ? planText.slice(0, 100) : "null"}`);
     const updateText = msg.text;
-
+    console.log(`4. Retrieved update text: ${updateText ? updateText.slice(0, 100) : "null"}`);
     // Evalúa con LLM (el que ya usas)
     const res = await this.evaluate(planText ?? "", updateText);
     const score = Math.max(0, Math.min(100, Math.round(res.score)));
+    console.log(`5. Evaluation result: score=${score}, rationale=${res.rationale ? res.rationale.slice(0, 100) : "null"}`);
     await this.repo.patchDaily(daily.id, {
       score,
       eval_model: res.model ?? process.env.LLM_MODEL ?? "gemini-2.5-flash",
