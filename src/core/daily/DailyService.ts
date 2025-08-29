@@ -138,6 +138,7 @@ export class DailyService {
     const updateText = msg.text;
 
     const res = await this.evaluate(planText ?? "", updateText);
+    console.log(`[LLM] Eval result for daily ${planText} user ${updateText}:`, res);
     const score = Math.max(0, Math.min(100, Math.round(res.score)));
 
     await this.repo.patchDaily(daily.id, {
