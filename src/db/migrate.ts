@@ -28,7 +28,7 @@ async function ensureSchema(): Promise<void> {
         tz                TEXT NOT NULL DEFAULT 'America/Bogota',
         provider          TEXT NOT NULL DEFAULT 'telegram',
         provider_user_id  TEXT,
-        created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+        created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
         update_at         INTEGER NOT NULL DEFAULT (unixepoch())
       )
     `);
