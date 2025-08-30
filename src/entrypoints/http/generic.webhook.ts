@@ -3,18 +3,23 @@ import { db } from "../../db/db";
 import { TursoRepo } from "../../adapters/repo/TursoRepo";
 import { TelegramHttpNotifier } from "../../adapters/notifier/TelegramHttpNotifier";
 import { DailyService } from "../../core/daily/DailyService";
-import {TelegramAdapter} from "../../adapters/channel/telegram/TelegramAdapter";
+import { TelegramAdapter } from "../../adapters/channel/telegram/TelegramAdapter";
 
 /** Evaluador con Gemini (JSON estricto) + fallback heurístico */
 async function evaluate(planText: string, updateText: string): Promise<{
   score: number; rationale?: string; advice?: string; model?: string; version?: string;
 }> {
+  console.log("Evaluating daily update with planText:", planText, "and updateText:", updateText);
+
   const apiKey = process.env.GEMINI_API_KEY || "";
   const model = process.env.LLM_MODEL || "gemini-2.5-flash";
   const version = process.env.LLM_RUBRIC_VERSION || "v1";
 
+  console.log("Using model:", model, "and version:", version);
+
   // Fallback si no hay API key
   if (!apiKey) {
+    console.log("No API key found, using fallback evaluation.");
     const ok = /cumpl[ií]|logr[eé]|hecho|termin/i.test(updateText) ? 100 : 70;
     return { score: ok, model, version, rationale: "fallback-no-key" };
   }
@@ -27,6 +32,8 @@ Resultado:
 ${updateText}
 Criterios: claridad del plan, alineación plan-resultado, evidencia de cumplimiento. Umbral 100 = cumplimiento total.
 Responde SOLO JSON válido.`;
+
+  console.log("Generated prompt for evaluation:", prompt);
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const res = await fetch(url, {
@@ -46,12 +53,15 @@ Responde SOLO JSON válido.`;
   });
 
   const raw = await res.text();
+  console.log("Raw response from API:", raw);
+
   try {
     const data = JSON.parse(raw);
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
     const cleaned = String(text).replace(/```[\s\S]*?```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const s = Number(parsed?.score ?? 0);
+    console.log("Parsed evaluation result:", parsed);
     return {
       score: isFinite(s) ? Math.max(0, Math.min(100, Math.round(s))) : 0,
       rationale: parsed?.rationale,
@@ -59,7 +69,8 @@ Responde SOLO JSON válido.`;
       model,
       version,
     };
-  } catch {
+  } catch (error) {
+    console.error("Error parsing API response:", error);
     const ok = /cumpl[ií]|logr[eé]|hecho|termin/i.test(updateText) ? 100 : 70;
     return { score: ok, model, version, rationale: "fallback-parse-error" };
   }
@@ -79,11 +90,19 @@ export default async function genericWebhook(
     statusCode?: number;
   }
 ): Promise<{ ok: true } | void> {
+  console.log("Starting genericWebhook...");
+
   await migrateOnce();
+  console.log("Database migration completed.");
 
   const repo = new TursoRepo(db);
   const token = process.env.TG_TOKEN || "";
-  if (!token) throw new Error("TG_TOKEN is required");
+  if (!token) {
+    console.error("TG_TOKEN is required but not found.");
+    throw new Error("TG_TOKEN is required");
+  }
+  console.log("TG_TOKEN found.");
+
   const notifier = new TelegramHttpNotifier(token);
   const service = new DailyService(repo, notifier, evaluate);
   const adapter = new TelegramAdapter(repo, notifier, service);
@@ -93,16 +112,24 @@ export default async function genericWebhook(
     ? (reqOrBody as any).body
     : reqOrBody;
 
+  console.log("Extracted body:", body);
+
   try {
     await adapter.handleUpdate(body ?? {});
+    console.log("Update handled successfully.");
   } catch (err) {
+    console.error("Error handling update:", err);
+
     // Telegram prefiere 200 aunque haya errores internos.
     if (res) {
       try {
         res.status?.(200);
         res.setHeader?.("Content-Type", "text/plain; charset=utf-8");
         res.end?.("OK");
-      } catch {}
+        console.log("Responded with 200 OK despite error.");
+      } catch (responseError) {
+        console.error("Error sending response:", responseError);
+      }
       return;
     }
     // Modo programático: no explotes
@@ -113,7 +140,9 @@ export default async function genericWebhook(
     res.status?.(200);
     res.setHeader?.("Content-Type", "application/json; charset=utf-8");
     res.end?.('{"ok":true}');
+    console.log("Responded with 200 OK.");
     return;
   }
+  console.log("Returning programmatic response: { ok: true }");
   return { ok: true };
 }
